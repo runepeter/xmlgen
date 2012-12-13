@@ -9,6 +9,36 @@
     <artifactId>xmlgen</artifactId>
     <version>0.1-SNAPSHOT</version>
 
+    <organization>
+        <name>Brylex org.</name>
+        <url>http://www.brylex.org</url>
+    </organization>
+
+    <licenses>
+        <license>
+            <name>The Apache Software License, Version 2.0</name>
+            <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:git:git://github.com/runepeter/xmlgen.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/runepeter/xmlgen.git</developerConnection>
+        <url>https://github.com/runepeter/xmlgen</url>
+    </scm>
+
+    <developers>
+        <developer>
+            <id>runepeter</id>
+            <name>Rune Peter Bjørnstad</name>
+            <email>runepeter@gmail.com</email>
+            <roles>
+                <role>Developer</role>
+            </roles>
+        </developer>
+    </developers>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -61,6 +91,24 @@
             </plugin>
         </plugins>
     </build>
+
+
+    <distributionManagement>
+        <snapshotRepository>
+            <id>sonatype-nexus-snapshots</id>
+            <name>Sonatype Nexus Snapshots</name>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+        <repository>
+            <id>sonatype-nexus-staging</id>
+            <name>Nexus Release Repository</name>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <site>
+            <id>s3</id>
+            <url>s3://brylex.org/xmlgen/</url>
+        </site>
+    </distributionManagement>
 
 </project>
 
