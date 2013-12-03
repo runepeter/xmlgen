@@ -1,5 +1,6 @@
 package org.brylex.xmlgen;
 
+import com.google.common.base.Stopwatch;
 import org.dom4j.Document;
 import org.dom4j.Element;
 import org.dom4j.Node;
@@ -10,9 +11,17 @@ import org.junit.Test;
 
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.io.Writer;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.fest.assertions.Assertions.assertThat;
 
@@ -133,6 +142,7 @@ public class GeneratingXMLEventReaderTest {
         XMLEventReader reader = new GeneratingXMLEventReader(main);
 
         Document document = new STAXEventReader().readDocument(reader);
+
         assertThat(document).isNotNull();
         assertThat(value(document, "//xml")).isEqualTo("1");
     }
@@ -162,15 +172,16 @@ public class GeneratingXMLEventReaderTest {
                 + "  </child>"
                 + "</xml>";
 
+        try (Reader xmlReader = new StringReader(xml)) {
 
-        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
-        XMLEventReader reader = new GeneratingXMLEventReader(main);
+            XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(xmlReader);
+            XMLEventReader reader = new GeneratingXMLEventReader(main);
 
-        Document document = new STAXEventReader().readDocument(reader);
-        print(document);
-        assertThat(document).isNotNull();
-        assertThat(value(document, "//jalla")).isEqualTo("4");
-        assertThat(value(document, "//friend")).isEqualTo("11");
+            Document document = new STAXEventReader().readDocument(reader);
+            assertThat(document).isNotNull();
+            assertThat(value(document, "//jalla")).isEqualTo("4");
+            assertThat(value(document, "//friend")).isEqualTo("11");
+        }
     }
 
     @Test
@@ -183,15 +194,17 @@ public class GeneratingXMLEventReaderTest {
                 + "  </child>"
                 + "</xml>";
 
-        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
-        XMLEventReader reader = new GeneratingXMLEventReader(main);
+        try (Reader xmlReader = new StringReader(xml)) {
 
-        Document document = new STAXEventReader().readDocument(reader);
-        print(document);
-        assertThat(document).isNotNull();
-        assertThat(count(document, "//child")).isEqualTo(2);
-        assertThat(value(document, "//child[1]/friend")).isEqualTo("2");
-        assertThat(value(document, "//child[2]/friend")).isEqualTo("4");
+            XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(xmlReader);
+            XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+            Document document = new STAXEventReader().readDocument(reader);
+            assertThat(document).isNotNull();
+            assertThat(count(document, "//child")).isEqualTo(2);
+            assertThat(value(document, "//child[1]/friend")).isEqualTo("2");
+            assertThat(value(document, "//child[2]/friend")).isEqualTo("4");
+        }
     }
 
     private int count(Node node, String xpath) {

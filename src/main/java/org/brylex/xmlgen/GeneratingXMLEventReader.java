@@ -18,20 +18,27 @@ public class GeneratingXMLEventReader implements XMLEventReader {
 
         StackEvent event = new StackEvent(delegate.nextEvent());
 
-
         if (event.isTemplate()) {
 
             RecordingXMLEventReader recordingReader = new RecordingXMLEventReader(delegate.current(), event);
             delegate.newRecorder(recordingReader);
 
-            return event.getEvent();
+            return returnableEvent(event);
         }
 
         if (delegate.isRecording() && delegate.peekRecorder().isDone()) {
             delegate.popRecorder().replay(stackReader.getStack());
         }
 
-        return event.getEvent();
+        return returnableEvent(event);
+    }
+
+    private XMLEvent returnableEvent(StackEvent event) {
+        if (event.getEvent().isStartElement()) {
+            return new GeneratorStrippingStartEvent(event.getEvent().asStartElement());
+        } else {
+            return event.getEvent();
+        }
     }
 
     public boolean hasNext() {

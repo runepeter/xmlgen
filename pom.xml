@@ -7,7 +7,7 @@
 
     <groupId>org.brylex</groupId>
     <artifactId>xmlgen</artifactId>
-    <version>0.1-SNAPSHOT</version>
+    <version>0.1</version>
 
     <organization>
         <name>Brylex org.</name>
@@ -47,14 +47,14 @@
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>13.0.1</version>
+            <version>15.0</version>
         </dependency>
 
         <!-- Test dependencies> -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>4.8.2</version>
+            <version>4.11</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -82,16 +82,14 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.5.1</version>
+                <version>3.1</version>
                 <configuration>
-                    <source>1.7</source>
-                    <target>1.7</target>
-                    <encoding>utf-8</encoding>
+                    <source>7</source>
+                    <target>7</target>
                 </configuration>
             </plugin>
         </plugins>
     </build>
-
 
     <distributionManagement>
         <snapshotRepository>
@@ -104,10 +102,6 @@
             <name>Nexus Release Repository</name>
             <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
         </repository>
-        <site>
-            <id>s3</id>
-            <url>s3://brylex.org/xmlgen/</url>
-        </site>
     </distributionManagement>
 
 </project>

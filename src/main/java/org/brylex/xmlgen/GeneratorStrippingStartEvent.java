@@ -131,4 +131,8 @@ class GeneratorStrippingStartEvent implements StartElement {
         delegate.writeAsEncodedUnicode(writer);
     }
 
+    @Override
+    public String toString() {
+        return delegate.toString();
+    }
 }

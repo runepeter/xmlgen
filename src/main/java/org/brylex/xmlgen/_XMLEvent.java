@@ -178,4 +178,14 @@ class _XMLEvent implements StartElement {
     public int getIncrement() {
         return increment;
     }
+
+    @Override
+    public String toString() {
+
+        if (delegate.isStartElement()) {
+            return "<" + delegate.asStartElement().getName() + ">";
+        }
+
+        return super.toString();
+    }
 }
