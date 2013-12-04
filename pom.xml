@@ -5,7 +5,7 @@
 
     <groupId>org.brylex</groupId>
     <artifactId>xmlgen</artifactId>
-    <version>0.1</version>
+    <version>0.2-SNAPSHOT</version>
 
     <organization>
         <name>Brylex org.</name>
@@ -24,7 +24,7 @@
         <connection>scm:git:git://github.com/runepeter/xmlgen.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/runepeter/xmlgen.git</developerConnection>
         <url>https://github.com/runepeter/xmlgen</url>
-      <tag>xmlgen-0.1</tag>
+      <tag>HEAD</tag>
   </scm>
 
     <developers>
