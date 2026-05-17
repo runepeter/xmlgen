@@ -33,7 +33,11 @@ class StackXMLEventReader implements XMLEventReader {
     }
 
     public Object next() {
-        throw new UnsupportedOperationException();
+        try {
+            return nextEvent();
+        } catch (XMLStreamException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     public void remove() {
@@ -50,19 +54,19 @@ class StackXMLEventReader implements XMLEventReader {
     }
 
     public String getElementText() throws XMLStreamException {
-        return "JALLA";
+        return XMLEventReaders.getElementText(this);
     }
 
     public XMLEvent nextTag() throws XMLStreamException {
-        throw new UnsupportedOperationException();
+        return XMLEventReaders.nextTag(this);
     }
 
     public Object getProperty(String s) throws IllegalArgumentException {
-        throw new UnsupportedOperationException();
+        return delegate.getProperty(s);
     }
 
     public void close() throws XMLStreamException {
-        throw new UnsupportedOperationException();
+        delegate.close();
     }
 
     public Stack<StackEvent> getStack() {

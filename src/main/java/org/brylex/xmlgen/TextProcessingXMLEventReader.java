@@ -68,27 +68,31 @@ class TextProcessingXMLEventReader implements XMLEventReader {
 
     @Override
     public String getElementText() throws XMLStreamException {
-        return delegate.getElementText();
+        return XMLEventReaders.getElementText(this);
     }
 
     @Override
     public XMLEvent nextTag() throws XMLStreamException {
-        return delegate.nextTag();
+        return XMLEventReaders.nextTag(this);
     }
 
     @Override
     public Object getProperty(String name) throws IllegalArgumentException {
-        throw new UnsupportedOperationException();
+        return delegate.getProperty(name);
     }
 
     @Override
     public void close() throws XMLStreamException {
-        throw new UnsupportedOperationException();
+        delegate.close();
     }
 
     @Override
     public Object next() {
-        throw new UnsupportedOperationException();
+        try {
+            return nextEvent();
+        } catch (XMLStreamException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     @Override

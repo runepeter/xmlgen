@@ -10,12 +10,15 @@ import org.junit.jupiter.api.Test;
 
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.events.XMLEvent;
 import java.io.Reader;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class GeneratingXMLEventReaderTest {
 
@@ -196,6 +199,92 @@ public class GeneratingXMLEventReaderTest {
             assertThat(count(document, "//child")).isEqualTo(2);
             assertThat(value(document, "//child[1]/friend")).isEqualTo("2");
             assertThat(value(document, "//child[2]/friend")).isEqualTo("4");
+        }
+    }
+
+    @Test
+    public void testGetElementTextReturnsContent() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml>hello world</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        advanceToFirstStartElement(reader);
+        assertThat(reader.getElementText()).isEqualTo("hello world");
+    }
+
+    @Test
+    public void testGetElementTextAppliesIncrement() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\" gen:increment=\"5\">10</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        advanceToFirstStartElement(reader);
+        assertThat(reader.getElementText()).isEqualTo("15");
+    }
+
+    @Test
+    public void testNextTagSkipsWhitespace() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml>   <child/>   </xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        reader.nextEvent(); // StartDocument
+        XMLEvent root = reader.nextTag();
+        XMLEvent child = reader.nextTag();
+
+        assertThat(root.isStartElement()).isTrue();
+        assertThat(root.asStartElement().getName().getLocalPart()).isEqualTo("xml");
+        assertThat(child.isStartElement()).isTrue();
+        assertThat(child.asStartElement().getName().getLocalPart()).isEqualTo("child");
+    }
+
+    @Test
+    public void testNextReturnsEvent() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xml/>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        assertThat(reader.next()).isInstanceOf(XMLEvent.class);
+    }
+
+    @Test
+    public void testCloseDoesNotThrow() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xml/>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        assertThatCode(reader::close).doesNotThrowAnyException();
+    }
+
+    @Test
+    public void testRemoveThrowsUnsupported() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><xml/>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        assertThatThrownBy(reader::remove).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    private void advanceToFirstStartElement(XMLEventReader reader) throws Exception {
+        while (reader.hasNext()) {
+            if (reader.nextEvent().isStartElement()) {
+                return;
+            }
         }
     }
 
