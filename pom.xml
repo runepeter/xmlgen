@@ -51,7 +51,7 @@
         <java.version>21</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
 
-        <guava.version>33.4.0-jre</guava.version>
+        <guava.version>33.6.0-jre</guava.version>
         <junit.version>5.11.4</junit.version>
         <assertj.version>3.27.2</assertj.version>
         <dom4j.version>2.1.4</dom4j.version>
