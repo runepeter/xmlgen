@@ -71,7 +71,17 @@ mvn -q package      # build the jar
 ```
 
 The artifact is published as `org.brylex:xmlgen` (currently
-`0.2-SNAPSHOT`).
+`0.2-SNAPSHOT`). To consume from Maven once a release ships:
+
+```xml
+<dependency>
+    <groupId>org.brylex</groupId>
+    <artifactId>xmlgen</artifactId>
+    <version>...</version>
+</dependency>
+```
+
+For how to cut a release, see [RELEASING.md](RELEASING.md).
 
 ## Project layout
 
