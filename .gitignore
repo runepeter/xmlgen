@@ -1,8 +1,25 @@
 target/
+
+# IntelliJ
 .idea/
-.project
-.classpath
 *.ipr
 *.iml
 *.iws
 
+# Eclipse
+.project
+.classpath
+.settings/
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local Claude state
+.claude/settings.local.json
