@@ -65,11 +65,24 @@ done with dom4j XPath.
 
 ## Known rough edges
 
-- `StackXMLEventReader.getElementText()` returns the literal string
-  `"JALLA"` — it isn't wired to anything in the test suite, but don't
-  rely on it. Fix it properly if a caller starts depending on it.
 - A few helper types are named with leading underscores (`_XMLEvent`,
   `_Attribute`). Leave the names alone unless you also update every
   reference.
 - The `0.2-SNAPSHOT` version has never been released; treat the module
   as pre-1.0.
+
+## `XMLEventReader` contract
+
+All decorators implement the full `XMLEventReader` contract:
+
+- `nextEvent()` / `peek()` / `hasNext()` — primary stream API.
+- `next()` — returns `nextEvent()`, wrapping `XMLStreamException` as
+  `IllegalStateException` (`Iterator` doesn't allow checked exceptions).
+- `nextTag()` / `getElementText()` — implemented via
+  `XMLEventReaders` helpers in terms of each decorator's own
+  `nextEvent()`, so template directives (e.g. `gen:increment`) are
+  applied to the returned text.
+- `close()` / `getProperty()` — delegate down to the source reader so
+  resources are released and StAX properties are visible.
+- `remove()` — throws `UnsupportedOperationException`, per the
+  `Iterator` contract for `XMLEventReader`.

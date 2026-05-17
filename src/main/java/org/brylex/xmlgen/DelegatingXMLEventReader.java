@@ -34,11 +34,11 @@ class DelegatingXMLEventReader implements XMLEventReader {
     }
 
     public Object getProperty(String s) throws IllegalArgumentException {
-        return delegate.peek().getProperty(s);
+        return delegate.firstElement().getProperty(s);
     }
 
     public void close() throws XMLStreamException {
-        delegate.peek().close();
+        delegate.firstElement().close();
     }
 
     public Object next() {
