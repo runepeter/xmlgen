@@ -9,15 +9,19 @@ A Java library that decorates `javax.xml.stream.XMLEventReader` so that
 an annotated XML template expands into generated test data on the fly.
 The public entry point is `org.brylex.xmlgen.GeneratingXMLEventReader`.
 
-Three template directives are supported, all in namespace `urn:xml:gen`:
+Four template directives are supported, all in namespace `urn:xml:gen`:
 
-- `gen:repeat="N"` — repeat the element subtree N times
-- `gen:increment="N"` — add N to the integer text content (accumulates
-  per repeat iteration when nested inside `gen:repeat`)
-- `gen:pick="pool/column"` — replace the element's text with a value
-  from a named pool of records supplied at reader construction
-  (`Pools`). Picks against the same pool within one `gen:repeat`
-  iteration share a row.
+- `gen:repeat="N"` (attribute) — repeat the element subtree N times
+- `gen:increment="N"` (attribute) — add N to the integer text content
+  (accumulates per repeat iteration when nested inside `gen:repeat`)
+- `gen:pick="pool/column"` (attribute) — replace the element's text
+  with a value from a named pool of records supplied at reader
+  construction (`Pools`). Picks against the same pool within one
+  `gen:repeat` iteration share a row.
+- `<gen:choose>` / `<gen:when weight="N">` (elements) — emit exactly
+  one branch, weighted-randomly. Inside a `gen:repeat`, each iteration
+  re-picks. Pass a seeded `Random` to the reader's three-arg
+  constructor for reproducibility.
 
 ## Architecture
 
@@ -41,6 +45,16 @@ from `StartElement` events before they reach the caller. `_XMLEvent`
 preserves all `gen:*` attributes on the wrapped `StartElement` so that
 downstream decorators (e.g., `PoolPickXMLEventReader`) can still see them
 after the recording's `decrementRepeat` round-trip.
+
+`gen:choose` is handled inline in `GeneratingXMLEventReader.nextEvent()`:
+when the materialize step sees `<gen:choose>`, `handleChoose()` pulls
+events through `delegate.nextEvent()` (so any active gen:repeat recorder
+still records the full structure), groups them into branches by
+`<gen:when>` boundaries, picks one weighted-randomly, and queues the
+chosen events in a `pending` deque. The next `nextEvent()` / `peek()`
+call drains `pending` before pulling more from `delegate`. Pending
+events bypass the recorder, so each `gen:repeat` iteration re-evaluates
+the choose against the recorded structure.
 
 When changing behaviour, the integration tests in
 `GeneratingXMLEventReaderTest` are the ground truth — they pin down
