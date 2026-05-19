@@ -54,6 +54,17 @@ preserves all `gen:*` attributes on the wrapped `StartElement` so that
 downstream decorators (e.g., `PoolPickXMLEventReader`) can still see them
 after the recording's `decrementRepeat` round-trip.
 
+`PoolPickXMLEventReader` keeps a stack of pin frames. Each
+`gen:repeat`-tagged StartElement pushes a new frame; the matching
+EndElement (detected via depth tracking) pops it. A pick walks the
+stack top-down, returning the first existing pin for the pool, or
+pinning a fresh row in the top frame if none. This is what gives
+nested `gen:repeat`s coherent semantics (outer customer pin survives
+across inner line iterations, inner product pin refreshes per line).
+The detection relies on `_XMLEvent.decrementRepeat()` preserving the
+`gen:repeat` attribute even on the last iteration (with value 1), so
+PoolPick sees a consistent iteration-boundary marker on every pass.
+
 `gen:choose` is handled inline in `GeneratingXMLEventReader.nextEvent()`:
 when the materialize step sees `<gen:choose>`, `handleChoose()` pulls
 events through `delegate.nextEvent()` (so any active gen:repeat recorder

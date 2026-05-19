@@ -6,6 +6,8 @@ import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -17,9 +19,9 @@ class PoolPickXMLEventReader implements XMLEventReader {
     private final XMLEventReader delegate;
     private final Pools pools;
 
-    private final Map<String, Integer> pinnedRow = new HashMap<>();
+    private final Deque<Map<String, Integer>> frames = new ArrayDeque<>();
+    private final Deque<Integer> frameDepths = new ArrayDeque<>();
     private int depth;
-    private int scopeDepth = -1;
 
     private String pendingPool;
     private String pendingColumn;
@@ -27,6 +29,8 @@ class PoolPickXMLEventReader implements XMLEventReader {
     PoolPickXMLEventReader(XMLEventReader delegate, Pools pools) {
         this.delegate = delegate;
         this.pools = pools;
+        // base frame holds picks made outside any gen:repeat scope
+        frames.push(new HashMap<>());
     }
 
     @Override
@@ -35,7 +39,7 @@ class PoolPickXMLEventReader implements XMLEventReader {
 
         if (event.isCharacters() && pendingPool != null) {
             Pool pool = pools.get(pendingPool);
-            int row = pinnedRow.computeIfAbsent(pendingPool, k -> pool.nextRow());
+            int row = resolveRow(pendingPool, pool);
             String value = pool.value(row, pendingColumn);
             pendingPool = null;
             pendingColumn = null;
@@ -45,8 +49,8 @@ class PoolPickXMLEventReader implements XMLEventReader {
         if (event.isStartElement()) {
             StartElement se = event.asStartElement();
             if (se.getAttributeByName(REPEAT) != null) {
-                pinnedRow.clear();
-                scopeDepth = depth + 1;
+                frames.push(new HashMap<>());
+                frameDepths.push(depth + 1);
             }
             Attribute pick = se.getAttributeByName(PICK);
             if (pick != null) {
@@ -63,13 +67,25 @@ class PoolPickXMLEventReader implements XMLEventReader {
             depth++;
         } else if (event.isEndElement()) {
             depth--;
-            if (scopeDepth >= 0 && depth < scopeDepth) {
-                pinnedRow.clear();
-                scopeDepth = -1;
+            if (!frameDepths.isEmpty() && depth < frameDepths.peek()) {
+                frames.pop();
+                frameDepths.pop();
             }
         }
 
         return event;
+    }
+
+    private int resolveRow(String poolName, Pool pool) {
+        for (Map<String, Integer> frame : frames) {
+            Integer pinned = frame.get(poolName);
+            if (pinned != null) {
+                return pinned;
+            }
+        }
+        int row = pool.nextRow();
+        frames.peek().put(poolName, row);
+        return row;
     }
 
     @Override

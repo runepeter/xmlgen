@@ -142,20 +142,15 @@ class _XMLEvent implements StartElement {
         Attribute removed = attributes.remove(REPEAT);
         if (removed != null) {
 
-            if (REPEAT.equals(removed.getName())) {
-
-                int repeat = Integer.parseInt(removed.getValue());
-                if (repeat > 2) {
-                    attributes.put(removed.getName(), new _Attribute(removed, "" + --repeat));
-                }
+            int repeat = Integer.parseInt(removed.getValue());
+            int next = repeat - 1;
+            if (next >= 1) {
+                attributes.put(removed.getName(), new _Attribute(removed, Integer.toString(next)));
             }
 
-            boolean isTemplate = false;
-            for (QName qName : attributes.keySet()) {
-                if ("urn:xml:gen".equals(qName.getNamespaceURI())) {
-                    isTemplate = true;
-                }
-            }
+            Attribute remaining = attributes.get(REPEAT);
+            boolean isTemplate = remaining != null
+                    && Integer.parseInt(remaining.getValue()) > 1;
             this.template.set(isTemplate);
         }
 
