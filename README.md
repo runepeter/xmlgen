@@ -19,7 +19,14 @@ The generator namespace is `urn:xml:gen` (conventional prefix: `gen`).
 | `gen:increment="N"` | Treat the element's text content as an integer and add `N` to it. Inside a `repeat`, the value accumulates per iteration. |
 | `gen:pick="pool/column"` | Replace the element's text with a value from a named pool. Multiple picks against the same pool inside one `gen:repeat` iteration share a row (coherent records). |
 
-Attributes in the generator namespace are stripped from the output.
+Plus two **elements** in the same namespace:
+
+| Element | Effect |
+| --- | --- |
+| `<gen:choose>` containing `<gen:when weight="N">...</gen:when>` children | Emit the contents of exactly one `<gen:when>` branch, picked weighted-randomly. Re-picked on every `gen:repeat` iteration. `weight` defaults to 1 if omitted. |
+
+Attributes and elements in the generator namespace are stripped from
+the output.
 
 ## Pools (`gen:pick`)
 
@@ -66,6 +73,38 @@ Nesting `gen:repeat` with picks across multiple levels is not yet
 supported — the row pinning is single-frame, so an inner repeat will
 clear the outer scope's pins. Keep picks within a single repeat level
 for now.
+
+## Branching (`gen:choose` / `gen:when`)
+
+Use `<gen:choose>` to emit exactly one of several alternative subtrees.
+Each `<gen:when>` child defines a branch; weights bias the random pick.
+Inside a `gen:repeat`, each iteration makes its own independent choice.
+
+```xml
+<entry xmlns:gen="urn:xml:gen" gen:repeat="100">
+    <gen:choose>
+        <gen:when weight="60">
+            <kind>incoming</kind>
+            <party gen:pick="customers/name">_</party>
+        </gen:when>
+        <gen:when weight="40">
+            <kind>outgoing</kind>
+            <party gen:pick="suppliers/name">_</party>
+        </gen:when>
+    </gen:choose>
+</entry>
+```
+
+Pass a seeded `Random` for reproducible runs:
+
+```java
+new GeneratingXMLEventReader(template, pools, new Random(42L));
+```
+
+`gen:repeat` *inside* a `gen:when` branch is not supported in this
+release — the chosen branch's events bypass the main directive loop, so
+they don't trigger nested recordings. Keep `gen:repeat` outside the
+choose.
 
 ## Example
 
