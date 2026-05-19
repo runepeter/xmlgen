@@ -16,9 +16,56 @@ The generator namespace is `urn:xml:gen` (conventional prefix: `gen`).
 | Attribute | Effect |
 | --- | --- |
 | `gen:repeat="N"` | Repeat the element (and its subtree) `N` times. Nesting multiplies. |
-| `gen:increment="N"` | Treat the element's text content as an integer and add `N` to it. Inside a `repeat`, the value increments per iteration. |
+| `gen:increment="N"` | Treat the element's text content as an integer and add `N` to it. Inside a `repeat`, the value accumulates per iteration. |
+| `gen:pick="pool/column"` | Replace the element's text with a value from a named pool. Multiple picks against the same pool inside one `gen:repeat` iteration share a row (coherent records). |
 
 Attributes in the generator namespace are stripped from the output.
+
+## Pools (`gen:pick`)
+
+`gen:pick` reads values from named pools you supply when constructing
+the reader. Each pool is an ordered list of records (rows), and each row
+maps column names to values. Picks advance a per-pool cursor and cycle
+when the pool runs out.
+
+Inside one iteration of `gen:repeat`, every pick against a given pool
+sees the **same row**, so related fields stay coherent:
+
+```xml
+<entry xmlns:gen="urn:xml:gen" gen:repeat="100">
+    <party>
+        <name gen:pick="customers/name">_</name>
+        <iban gen:pick="customers/iban">_</iban>  <!-- same row as name -->
+    </party>
+</entry>
+```
+
+Wire pools into the reader:
+
+```java
+Pools pools = Pools.builder()
+        .csv("customers", Path.of("customers.csv"))
+        .csv("suppliers", Path.of("suppliers.csv"))
+        .build();
+
+XMLEventReader reader = new GeneratingXMLEventReader(template, pools);
+```
+
+CSVs use the first row as the header and a comma separator. For
+test-time data you can also pass rows inline:
+
+```java
+Pools.builder()
+        .inline("customers", List.of(
+                Map.of("name", "Acme AS", "iban", "NO11"),
+                Map.of("name", "Beta AS", "iban", "NO22")))
+        .build();
+```
+
+Nesting `gen:repeat` with picks across multiple levels is not yet
+supported — the row pinning is single-frame, so an inner repeat will
+clear the outer scope's pins. Keep picks within a single repeat level
+for now.
 
 ## Example
 
