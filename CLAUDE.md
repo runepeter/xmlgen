@@ -22,6 +22,13 @@ Four template directives are supported, all in namespace `urn:xml:gen`:
   one branch, weighted-randomly. Inside a `gen:repeat`, each iteration
   re-picks. Pass a seeded `Random` to the reader's three-arg
   constructor for reproducibility.
+- `gen:random-int="min..max"`, `gen:random-amount="min..max"`,
+  `gen:random-date="YYYY-MM-DD..YYYY-MM-DD"` (attributes) — replace the
+  element's text with a random value in the closed range. Implemented
+  by `RandomXMLEventReader`, which sits between `TextProcessingXML…`
+  and `PoolPickXMLEventReader` in the decorator chain. Shares the same
+  `Random` instance as `gen:choose`, so a single seed reproduces an
+  entire run.
 
 ## Architecture
 
@@ -31,11 +38,12 @@ The reader is a chain of decorators, wired in
 ```
 caller
   └── GeneratingXMLEventReader
-        └── DelegatingXMLEventReader          // dispatches to recorders
-              └── TextProcessingXMLEventReader    // applies gen:increment
-                    └── PoolPickXMLEventReader      // applies gen:pick (when Pools supplied)
-                          └── StackXMLEventReader     // lookahead/replay stack
-                                └── source XMLEventReader (template)
+        └── DelegatingXMLEventReader            // dispatches to recorders
+              └── TextProcessingXMLEventReader      // applies gen:increment
+                    └── RandomXMLEventReader            // applies gen:random-*
+                          └── PoolPickXMLEventReader      // applies gen:pick (when Pools supplied)
+                                └── StackXMLEventReader     // lookahead/replay stack
+                                      └── source XMLEventReader (template)
 ```
 
 `RecordingXMLEventReader` captures the events inside a `gen:repeat`

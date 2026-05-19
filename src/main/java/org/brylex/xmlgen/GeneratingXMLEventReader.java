@@ -38,6 +38,7 @@ public class GeneratingXMLEventReader implements XMLEventReader {
         if (!pools.isEmpty()) {
             chain = new PoolPickXMLEventReader(chain, pools);
         }
+        chain = new RandomXMLEventReader(chain, random);
         this.delegate = new DelegatingXMLEventReader(new TextProcessingXMLEventReader(chain));
         this.random = random;
     }
