@@ -10,8 +10,16 @@ public class GeneratingXMLEventReader implements XMLEventReader {
     private final DelegatingXMLEventReader delegate;
 
     public GeneratingXMLEventReader(final XMLEventReader delegate) {
+        this(delegate, Pools.empty());
+    }
+
+    public GeneratingXMLEventReader(final XMLEventReader delegate, final Pools pools) {
         this.stackReader = new StackXMLEventReader(delegate);
-        this.delegate = new DelegatingXMLEventReader(new TextProcessingXMLEventReader(stackReader));
+        XMLEventReader chain = stackReader;
+        if (!pools.isEmpty()) {
+            chain = new PoolPickXMLEventReader(chain, pools);
+        }
+        this.delegate = new DelegatingXMLEventReader(new TextProcessingXMLEventReader(chain));
     }
 
     public XMLEvent nextEvent() throws XMLStreamException {

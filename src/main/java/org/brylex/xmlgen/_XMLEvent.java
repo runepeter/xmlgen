@@ -33,13 +33,13 @@ class _XMLEvent implements StartElement {
 
             if ("urn:xml:gen".equals(qName.getNamespaceURI())) {
 
+                attributes.put(qName, attribute);
+
                 if (REPEAT.equals(qName) && Integer.parseInt(attribute.getValue()) > 1) {
-                    attributes.put(qName, attribute);
                     this.template.set(true);
                 }
 
                 if (INCREMENT.equals(qName)) {
-                    attributes.put(qName, attribute);
                     this.increment = Integer.parseInt(attribute.getValue());
                 }
 

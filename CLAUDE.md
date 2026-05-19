@@ -9,11 +9,15 @@ A Java library that decorates `javax.xml.stream.XMLEventReader` so that
 an annotated XML template expands into generated test data on the fly.
 The public entry point is `org.brylex.xmlgen.GeneratingXMLEventReader`.
 
-Two template directives are supported, both in namespace `urn:xml:gen`:
+Three template directives are supported, all in namespace `urn:xml:gen`:
 
 - `gen:repeat="N"` — repeat the element subtree N times
-- `gen:increment="N"` — add N to the integer text content (per repeat
-  iteration when nested inside `gen:repeat`)
+- `gen:increment="N"` — add N to the integer text content (accumulates
+  per repeat iteration when nested inside `gen:repeat`)
+- `gen:pick="pool/column"` — replace the element's text with a value
+  from a named pool of records supplied at reader construction
+  (`Pools`). Picks against the same pool within one `gen:repeat`
+  iteration share a row.
 
 ## Architecture
 
@@ -23,16 +27,20 @@ The reader is a chain of decorators, wired in
 ```
 caller
   └── GeneratingXMLEventReader
-        └── DelegatingXMLEventReader        // dispatches to recorders
-              └── TextProcessingXMLEventReader  // applies gen:increment
-                    └── StackXMLEventReader     // lookahead/replay stack
-                          └── source XMLEventReader (template)
+        └── DelegatingXMLEventReader          // dispatches to recorders
+              └── TextProcessingXMLEventReader    // applies gen:increment
+                    └── PoolPickXMLEventReader      // applies gen:pick (when Pools supplied)
+                          └── StackXMLEventReader     // lookahead/replay stack
+                                └── source XMLEventReader (template)
 ```
 
 `RecordingXMLEventReader` captures the events inside a `gen:repeat`
 subtree and replays them N times onto the `StackXMLEventReader`'s stack
 on completion. `GeneratorStrippingStartEvent` removes `gen:*` attributes
-from `StartElement` events before they reach the caller.
+from `StartElement` events before they reach the caller. `_XMLEvent`
+preserves all `gen:*` attributes on the wrapped `StartElement` so that
+downstream decorators (e.g., `PoolPickXMLEventReader`) can still see them
+after the recording's `decrementRepeat` round-trip.
 
 When changing behaviour, the integration tests in
 `GeneratingXMLEventReaderTest` are the ground truth — they pin down
