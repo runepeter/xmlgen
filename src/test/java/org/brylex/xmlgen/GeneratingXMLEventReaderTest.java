@@ -280,6 +280,99 @@ public class GeneratingXMLEventReaderTest {
         assertThatThrownBy(reader::remove).isInstanceOf(UnsupportedOperationException.class);
     }
 
+    @Test
+    public void testRepeatZeroEmitsOnce() throws Exception {
+
+        // Quirk: gen:repeat is only treated as a template directive when
+        // the value is strictly greater than 1 (see _XMLEvent line 36).
+        // gen:repeat="0" therefore emits the element once, not zero times.
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\">"
+                + "  <child gen:repeat=\"0\"></child>"
+                + "</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        Document document = new STAXEventReader().readDocument(reader);
+        assertThat(count(document, "//child")).isEqualTo(1);
+    }
+
+    @Test
+    public void testRepeatOneEmitsOnce() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\">"
+                + "  <child gen:repeat=\"1\"></child>"
+                + "</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        Document document = new STAXEventReader().readDocument(reader);
+        assertThat(count(document, "//child")).isEqualTo(1);
+    }
+
+    @Test
+    public void testRepeatPreservesNonGenAttributes() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\">"
+                + "  <child id=\"x\" type=\"row\" gen:repeat=\"3\"></child>"
+                + "</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        Document document = new STAXEventReader().readDocument(reader);
+        assertThat(count(document, "//child")).isEqualTo(3);
+        assertThat(count(document, "//child[@id='x']")).isEqualTo(3);
+        assertThat(count(document, "//child[@type='row']")).isEqualTo(3);
+        // gen:* attributes must be stripped
+        assertThat(count(document, "//child[@*[namespace-uri()='urn:xml:gen']]")).isEqualTo(0);
+    }
+
+    @Test
+    public void testIncrementByNegativeValue() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\" gen:increment=\"-3\">10</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        Document document = new STAXEventReader().readDocument(reader);
+        assertThat(value(document, "//xml")).isEqualTo("7");
+    }
+
+    @Test
+    public void testIncrementOnNonIntegerThrows() throws Exception {
+
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\" gen:increment=\"1\">not-a-number</xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        assertThatThrownBy(() -> new STAXEventReader().readDocument(reader))
+                .isInstanceOf(NumberFormatException.class);
+    }
+
+    @Test
+    public void testIncrementOnTextWithWhitespaceThrows() throws Exception {
+
+        // Integer.parseInt is strict about whitespace; pinning this so
+        // consumers know to trim themselves if they need whitespace tolerance.
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\" gen:increment=\"1\">  10  </xml>";
+
+        XMLEventReader main = XMLInputFactory.newFactory().createXMLEventReader(new StringReader(xml));
+        XMLEventReader reader = new GeneratingXMLEventReader(main);
+
+        assertThatThrownBy(() -> new STAXEventReader().readDocument(reader))
+                .isInstanceOf(NumberFormatException.class);
+    }
+
     private void advanceToFirstStartElement(XMLEventReader reader) throws Exception {
         while (reader.hasNext()) {
             if (reader.nextEvent().isStartElement()) {
