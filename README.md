@@ -72,10 +72,11 @@ Pools.builder()
         .build();
 ```
 
-Nesting `gen:repeat` with picks across multiple levels is not yet
-supported — the row pinning is single-frame, so an inner repeat will
-clear the outer scope's pins. Keep picks within a single repeat level
-for now.
+Nested `gen:repeat`s share pin context correctly: an outer pin
+(e.g. a customer chosen for an order) survives across inner iterations
+(its lines), while inner pins (e.g. a product chosen per line) refresh
+per inner iteration. The pin stack is consulted top-down — innermost
+scope first, falling back to outer scopes.
 
 ## Branching (`gen:choose` / `gen:when`)
 

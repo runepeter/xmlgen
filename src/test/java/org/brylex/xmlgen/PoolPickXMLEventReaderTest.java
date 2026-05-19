@@ -218,6 +218,88 @@ public class PoolPickXMLEventReaderTest {
     }
 
     @Test
+    public void testOuterPinSurvivesInnerRepeatIterations() throws Exception {
+
+        Pools pools = Pools.builder()
+                .inline("customers", List.of(
+                        Map.of("name", "Acme"),
+                        Map.of("name", "Beta")))
+                .inline("products", List.of(
+                        Map.of("sku", "P1"),
+                        Map.of("sku", "P2"),
+                        Map.of("sku", "P3")))
+                .build();
+
+        // Two orders, each with three lines. The customer pin must hold
+        // across the three inner iterations, but products must advance
+        // per line.
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\">"
+                + "  <order gen:repeat=\"2\">"
+                + "    <customer gen:pick=\"customers/name\">_</customer>"
+                + "    <line gen:repeat=\"3\">"
+                + "      <sku gen:pick=\"products/sku\">_</sku>"
+                + "    </line>"
+                + "  </order>"
+                + "</xml>";
+
+        Document document = parse(xml, pools);
+        List<Element> orders = document.getRootElement().elements("order");
+        assertThat(orders).hasSize(2);
+
+        // Order 1: customer pinned at Acme, three lines with P1, P2, P3.
+        assertThat(orders.get(0).elementText("customer")).isEqualTo("Acme");
+        List<Element> lines1 = orders.get(0).elements("line");
+        assertThat(lines1).hasSize(3);
+        assertThat(lines1.get(0).elementText("sku")).isEqualTo("P1");
+        assertThat(lines1.get(1).elementText("sku")).isEqualTo("P2");
+        assertThat(lines1.get(2).elementText("sku")).isEqualTo("P3");
+
+        // Order 2: customer advances to Beta. Products cycle (P1 again).
+        assertThat(orders.get(1).elementText("customer")).isEqualTo("Beta");
+        List<Element> lines2 = orders.get(1).elements("line");
+        assertThat(lines2).hasSize(3);
+        assertThat(lines2.get(0).elementText("sku")).isEqualTo("P1");
+        assertThat(lines2.get(1).elementText("sku")).isEqualTo("P2");
+        assertThat(lines2.get(2).elementText("sku")).isEqualTo("P3");
+    }
+
+    @Test
+    public void testInnerPickReadsOuterPin() throws Exception {
+
+        Pools pools = Pools.builder()
+                .inline("customers", List.of(
+                        Map.of("name", "Acme", "iban", "NO11"),
+                        Map.of("name", "Beta", "iban", "NO22")))
+                .build();
+
+        // Outer pick pins the customer row; inner repeat references the
+        // same pool and should see the OUTER row, not start fresh.
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+                + "<xml xmlns:gen=\"urn:xml:gen\">"
+                + "  <order gen:repeat=\"2\">"
+                + "    <name gen:pick=\"customers/name\">_</name>"
+                + "    <line gen:repeat=\"2\">"
+                + "      <iban gen:pick=\"customers/iban\">_</iban>"
+                + "    </line>"
+                + "  </order>"
+                + "</xml>";
+
+        Document document = parse(xml, pools);
+        List<Element> orders = document.getRootElement().elements("order");
+
+        assertThat(orders.get(0).elementText("name")).isEqualTo("Acme");
+        for (Element line : orders.get(0).elements("line")) {
+            assertThat(line.elementText("iban")).isEqualTo("NO11");
+        }
+
+        assertThat(orders.get(1).elementText("name")).isEqualTo("Beta");
+        for (Element line : orders.get(1).elements("line")) {
+            assertThat(line.elementText("iban")).isEqualTo("NO22");
+        }
+    }
+
+    @Test
     public void testNoPoolsConstructorStillWorks() throws Exception {
 
         // Backwards compatibility: the original single-arg constructor
