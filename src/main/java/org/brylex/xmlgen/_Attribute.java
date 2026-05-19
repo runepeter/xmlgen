@@ -16,7 +16,15 @@ public class _Attribute implements Attribute {
     private String value;
 
     public _Attribute(final Attribute delegate, final String newValue) {
-        this.delegate = delegate;
+        // Unwrap nested _Attribute so subsequent method calls (getName,
+        // isAttribute, getEventType, ...) are O(1) instead of O(N) over
+        // gen:repeat replays. Each decrementRepeat would otherwise add
+        // another delegation layer.
+        Attribute inner = delegate;
+        while (inner instanceof _Attribute a) {
+            inner = a.delegate;
+        }
+        this.delegate = inner;
         this.value = newValue;
     }
 

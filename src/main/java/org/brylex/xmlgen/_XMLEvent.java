@@ -25,7 +25,6 @@ class _XMLEvent implements StartElement {
     private int increment;
 
     public _XMLEvent(final StartElement delegate) {
-        this.delegate = delegate;
 
         for (Iterator<Attribute> it = delegate.getAttributes(); it.hasNext(); ) {
             Attribute attribute = it.next();
@@ -47,6 +46,17 @@ class _XMLEvent implements StartElement {
                 attributes.put(qName, attribute);
             }
         }
+
+        // Unwrap nested _XMLEvent chains so subsequent method calls
+        // (getName, getEventType, etc.) are O(1) instead of O(N) where
+        // N is the chain depth. Without this, each gen:repeat replay
+        // adds two wrapping layers, turning template fill-in into O(N^2)
+        // work over the document.
+        StartElement raw = delegate;
+        while (raw instanceof _XMLEvent inner) {
+            raw = inner.delegate;
+        }
+        this.delegate = raw;
     }
 
     public QName getName() {
