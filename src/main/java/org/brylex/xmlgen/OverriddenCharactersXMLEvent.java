@@ -14,7 +14,15 @@ class OverriddenCharactersXMLEvent implements Characters {
     private final String text;
 
     OverriddenCharactersXMLEvent(final Characters characters, final String text) {
-        this.characters = characters;
+        // Unwrap nested OverriddenCharactersXMLEvent so subsequent
+        // method calls are O(1) instead of O(N) over gen:repeat
+        // replays. Without this, every pick/random substitution adds
+        // another delegation layer.
+        Characters inner = characters;
+        while (inner instanceof OverriddenCharactersXMLEvent o) {
+            inner = o.characters;
+        }
+        this.characters = inner;
         this.text = text;
     }
 
