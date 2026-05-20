@@ -81,8 +81,12 @@ Immutable etter bygging (kun `directive`-feltet muteres av analyzers).
 ChildSlot med kardinalitet > 1. Ikke-konsekutive søsken med samme qName blir
 separate ChildSlot-er.
 
-**Cross-sample-rekkefølge:** Første samples rekkefølge vinner ved uenighet
-(ingen varsel i v1).
+**Cross-sample-rekkefølge:** Kanonisk rekkefølge utledes fra **mest-frekvent
+observert ordnet barn-sekvens** på tvers av samples; ties broken
+leksikografisk på qName-sekvensen. Deterministisk uavhengig av input-sample-
+rekkefølge. Hvis to eller flere sekvenser har lik frekvens og det er
+strukturelt meningsfullt å skille (eks. konflikterende child-rekkefølge i samme
+position), genereres en `InferenceWarning.AmbiguousOrder`.
 
 ### `Directive`
 
@@ -144,17 +148,23 @@ relevante noder. Rekkefølgen er fastlåst i `AnalyzerPipeline`-konstruktøren.
   `Random(Uuid)`
 
 #### `ChooseAnalyzer`
-- Per parent-ShapeNode: lag barn-signaturer = sortert sett av
-  `{qName for direct child}`. Grupper parent-instanser per signatur.
+- Per parent-ShapeNode: lag barn-signaturer = **ordnet sekvens av (qName,
+  bucketed-cardinality)-par**, der bucketed-cardinality er én av {0, 1,
+  2..many}. Bevarer rekkefølge og multiplicitet (ikke bare set-likhet).
+  Grupper parent-instanser per signatur.
 - Én signatur → no-op
 - Signaturer danner *subset-kjede* (A ⊂ B ⊂ ...) → de ekstra elementene er
   valgfrie. Wrap hvert valgfritt element i `gen:choose` med to brancher
   (med element + tom branch), vekter = observert ratio
 - Signaturer er gjensidig distinkte → ekte `gen:choose` med én `<gen:when>` per
   signatur-gruppe, vekter = gruppens observasjons-count
-- Threshold: signaturer < 10% av observasjoner droppes som støy
+- Threshold: signaturer < 10% av observasjoner droppes som støy, men
+  **hver dropp produserer en `InferenceWarning.DroppedRareSignature`**
+  med signatur-rep og count. Bruker kan inspisere warnings og evt. justere
+  `chooseNoiseThreshold` ned i config eller slå på `strictMode` (failer i
+  stedet for å droppe)
 - Hard cap: max 4 brancher per choose; over det → fall tilbake til
-  majoritets-signatur
+  majoritets-signatur + `InferenceWarning.ChooseBranchOverflow`
 
 #### `PickCoherenceAnalyzer` (kjøres sist)
 - Per parent-ShapeNode: identifiser leaf-children som ikke allerede har
@@ -195,11 +205,22 @@ observerte verdier var unike (`distinctValues == observations`):
 ### `InferredTemplate`
 
 ```java
-public record InferredTemplate(String templateXml, Pools pools) {
+public record InferredTemplate(
+    String templateXml,
+    Pools pools,
+    List<InferenceWarning> warnings
+) {
     public XMLEventReader expand(Random random) { ... }
     public XMLEventReader expand() { return expand(new Random()); }
 }
 ```
+
+`InferenceWarning` er en sealed interface med konkrete records:
+`DroppedRareSignature`, `ChooseBranchOverflow`, `AmbiguousOrder`,
+`VariableAttributeFallback`, `ValueSamplesTruncated`,
+`UniqueValueCycleRisk`, m.fl. Hvert warning har `xpath`-felt og en
+menneskelesbar beskrivelse. Brukere kan ignorere listen, logge den,
+eller behandle den som assertion (strict-mode i tester).
 
 ### `InferenceConfig`
 
@@ -213,7 +234,11 @@ public record InferenceConfig(
     double randomCardinalityThreshold, // default 0.50
     int minPoolRows,                   // default 5
     double chooseNoiseThreshold,       // default 0.10
-    int chooseMaxBranches              // default 4
+    int chooseMaxBranches,             // default 4
+    int maxValueSamplesPerNode,        // default 1000; over → kun statistikk + warning
+    int maxSampleDepth,                // default 100; XML-bomb-vern
+    boolean allowVariableAttributes,   // default false; true = fall til first-observed + warning
+    boolean strictMode                 // default false; true = stille degraderinger blir InferenceException
 ) {
     public static InferenceConfig defaults() { ... }
 }
@@ -237,17 +262,30 @@ TemplateInferrer.infer(List<XMLEventReader> samples, InferenceConfig config);
 | `xmlns:gen` med annen URI | "sample N declares xmlns:gen with conflicting URI: ..." |
 | Namespace-kollisjon (samme lokal-navn, ulike namespaces) ved pool-naming | "namespace collision at <XPath>: <ns1> vs <ns2>" |
 | Mixed-content-element trenger gen:repeat | "gen:repeat on mixed-content element not supported in v1" |
+| Variabel attributtverdi (≥ 2 distinkte verdier observert) og `allowVariableAttributes=false` | "attribute <attr> at <XPath> has N distinct values; set allowVariableAttributes=true to fall back to first-observed" |
+| Mixed-content-innhold varierer på tvers av samples | "mixed-content divergence at <XPath>" |
+| Sample-tre overstiger `maxSampleDepth` | "sample N exceeds maxSampleDepth=<N> at <XPath>" |
+| `strictMode=true` og noen `InferenceWarning` ble produsert | "strict mode: inference produced N warnings (see exception.warnings)" |
 
-**Best-effort (stille):**
+**Best-effort med diagnostikk (produserer `InferenceWarning`):**
 
-| Situasjon | Håndtering |
-|---|---|
-| Felt numerisk i én sample, tekst i en annen | RandomRangeAnalyzer hopper over; faller til PickCoherence |
-| Delvis bijektiv koherens (< 100%) | Ikke felles pool; individuelle picks |
-| Choose-signatur < 10% representasjon | Droppet som støy |
-| Attributter med variabilitet | First-observed-value (kjent v1-begrensning) |
+| Situasjon | Håndtering | Warning |
+|---|---|---|
+| Felt numerisk i én sample, tekst i en annen | RandomRangeAnalyzer hopper over; faller til PickCoherence | `MixedTypeFallback` |
+| Delvis bijektiv koherens (< 100%) | Ikke felles pool; individuelle picks | `PartialBijectionRejected` |
+| Choose-signatur < 10% representasjon | Droppet som støy | `DroppedRareSignature` |
+| Choose-brancher > 4 | Fall tilbake til majoritets-signatur | `ChooseBranchOverflow` |
+| Variabel attributt og `allowVariableAttributes=true` | First-observed-value | `VariableAttributeFallback` |
+| valueSamples for én node > `maxValueSamplesPerNode` | Behold kun statistikk (cardinality, min/max-lengde) | `ValueSamplesTruncated` |
+| Alle observerte verdier unike (cardinality = observations) | Pool emitteres med WARNING-kommentar i template | `UniqueValueCycleRisk` |
+| Tvetydig child-rekkefølge (flere sekvenser med lik frekvens) | Lex-tiebreak | `AmbiguousOrder` |
 
-**Ingen logging-rammeverk-dependency** i v1.
+I `strictMode=true` blir hver av disse til en `InferenceException` i stedet
+for en warning. Brukere får full kontroll over hvor mye degradering som er
+akseptabel.
+
+**Ingen logging-rammeverk-dependency** i v1. Warnings returneres via
+`InferredTemplate.warnings`.
 
 ## Datastrøm (eksempel)
 
@@ -349,13 +387,20 @@ oppdateres til å demonstrere ny støttet bruk.
 ### 3. `gen:random-uuid="true"`-direktiv
 Ny håndtering i `RandomXMLEventReader`: hvis StartElement har
 `gen:random-uuid` attributtet med verdi `"true"`, erstatt elementets tekst med
-`UUID.randomUUID().toString()`. Bruker ikke `Random` (UUID-API'et bruker
-SecureRandom internt); dokumenter at UUID ikke er seedet for reproduserbarhet.
+`new UUID(random.nextLong(), random.nextLong()).toString()`. Bruker
+eksisterende `Random`-instans fra `GeneratingXMLEventReader` for full
+seedbarhet — viktig for deterministiske tester og round-trip-property
+(rev-funn). NB: UUID-ene blir ikke kryptografisk-sterke (de er
+pseudo-tilfeldige, ikke `SecureRandom`); det er en akseptabel tradeoff
+for et test-data-verktøy.
 
 ## Kjente begrensninger (dokumentert, ikke fixet i v1)
 
-- **Attributter med variabilitet:** Inferrer emitterer alltid første observerte
-  verdi. Ingen attributt-direktiver i v1.
+- **Attributter med variabilitet:** Default = fail loud
+  (`InferenceException`). Bruker kan sette
+  `InferenceConfig.allowVariableAttributes=true` for å falle til
+  first-observed-value med `VariableAttributeFallback`-warning. Ingen
+  attributt-direktiver (gen:* på attributter) i v1.
 - **gen:repeat på mixed-content-elementer:** Fail loud.
 - **Verdier som er 100% unike men ikke UUID:** Pool emitteres med WARNING-
   kommentar.
@@ -377,3 +422,71 @@ V1 er ferdig når:
 6. Determinisme-test passerer: shuffle av input gir identisk output
 7. README oppdatert med inferens-seksjon og minimum-eksempel
 8. CLAUDE.md oppdatert med arkitektur-pekere til `infer`-subpakken
+
+## Review-merknader
+
+Spec'en gikk gjennom multi-agent review (Codex + Gemini; gemma4:26b
+hang under modellasting og ble droppet). Følgende endringer ble
+innarbeidet basert på reviewer-funn:
+
+### Innarbeidet (høy prioritet)
+
+- **Determinisme-konflikt løst:** Tidligere "første samples rekkefølge
+  vinner" motstrider direkte `infer(shuffled(samples))`-determinisme-
+  testen. Erstattet med mest-frekvent-observerte ordnet sekvens, lex-
+  tiebreak (Codex #2).
+- **ChooseAnalyzer-signatur styrket:** Sortert sett av qNames mister
+  rekkefølge og multiplicitet. Erstattet med ordnet sekvens av (qName,
+  bucketed-cardinality)-par (Codex #3).
+- **Variable attributter fra silent-fallback til fail-loud:** Default
+  feiler nå loud; bruker må eksplisitt opt-in via
+  `allowVariableAttributes=true`. Lukker en stille
+  data-lekkasje-vinkel i anonymiserings-bruk (Codex #6).
+- **Diagnostikk-kanal:** `InferredTemplate.warnings` introdusert.
+  Hver stille degradering produserer en typed `InferenceWarning`.
+  Lukker "ingen innsikt i hvorfor inferens ble svakere"-gapet
+  (Codex #4, #10).
+- **UUID seedbar:** Endret fra `UUID.randomUUID()` til
+  `new UUID(random.nextLong(), random.nextLong())` for full
+  reproducerbarhet i tester (Codex #8, Gemini #1).
+
+### Innarbeidet (middels prioritet)
+
+- **Memory bounds:** `maxValueSamplesPerNode` (default 1000) lagt til
+  i config. Over threshold beholdes kun statistikk (Gemini #3).
+- **XML-bomb-vern:** `maxSampleDepth` (default 100) lagt til (Gemini #7).
+- **Strict mode:** `strictMode=true` gjør hver warning til exception.
+  Lar tester eksplisitt assertere på "ingen stille degraderinger"
+  (Codex #4 + #10).
+- **Mixed-content-divergens:** Lagt til fail-loud-tilfelle for
+  variasjon i mixed content på tvers av samples (Codex #5).
+
+### Notert, ikke endret (judgment call)
+
+- **Codex #1 (ShapeNode immutability):** Reviewer foreslår separat
+  `AnalysisResult`-map i stedet for muterbar `directive`-felt.
+  Argumentet er gyldig (skille strukturdata fra analysemetadata),
+  men "max én direktiv per node" matcher faktisk semantikk
+  (direktiver er gjensidig ekskluderende på samme element i ekspansjons-
+  laget). Beholder muterbart `directive`-felt for v1; refaktor mulig
+  hvis flerdirektiv-behov dukker opp.
+- **Codex #11 (én PR vs split):** Reviewer anbefaler å dele i kjerne-
+  utvidelser-PR først, deretter inferrer-PR. Bruker har bevisst valgt
+  én PR med begrunnelse "scope-creep-risiko mellom landinger." Beholdt,
+  men flagget som risikofaktor for implementasjons-planen — store PR-er
+  må kompenseres med strukturert review.
+- **Gemini #6 (gen:repeat-i-choose implementasjons-risiko):** Reviewer
+  foreslår pass-through-dekoratør i stedet for å endre intern queue-
+  logikk i `GeneratingXMLEventReader`. Implementasjons-valg, ikke spec-
+  endring; flagges til implementasjons-planen.
+- **Codex #7 (random-range domeneverdier):** Reviewer flagger at
+  observed min/max kan gi ugyldige verdier (eks. negative beløp, framtidige
+  datoer). For v1 dokumenteres som heuristikk-begrensning; bruker kan
+  justere config eller etterpå-modifisere template manuelt.
+
+### Ikke adressert (lav prioritet eller out-of-scope)
+
+- Codex #12 (negative tester for kontradiktoriske samples): legges til
+  implementasjons-planen som test-kategori, ikke spec-detalj.
+- Gemini #5 (bijection-styrke vs row count): default kan justeres når
+  empirisk data tilsier; ikke kritisk for v1-shippability.
