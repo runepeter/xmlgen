@@ -71,9 +71,42 @@ events through `delegate.nextEvent()` (so any active gen:repeat recorder
 still records the full structure), groups them into branches by
 `<gen:when>` boundaries, picks one weighted-randomly, and queues the
 chosen events in a `pending` deque. The next `nextEvent()` / `peek()`
-call drains `pending` before pulling more from `delegate`. Pending
-events bypass the recorder, so each `gen:repeat` iteration re-evaluates
-the choose against the recorded structure.
+call drains `pending` through `DelegatingXMLEventReader.feedEvent()`,
+which routes events into any newly-pushed inner recorder (created when
+the chosen branch itself contains `gen:repeat`). Depth-tracking via
+`pendingOuterDepth` prevents double-recording into the outer recorder
+that already captured the full choose subtree during `handleChoose()`'s
+pull-loop. This makes `gen:repeat` inside `gen:when` first-class.
+
+## Inference pipeline
+
+`org.brylex.xmlgen.infer` is a separate pipeline from the expansion
+chain. Given 5–50 real XML samples, it emits an annotated template +
+`Pools` that round-trips through `GeneratingXMLEventReader`:
+
+```
+TemplateInferrer.infer(samples)
+  └── ShapeBuilder              // XMLEventReaders → ShapeNode tree
+  └── AnalyzerPipeline          // decorates nodes with directive decisions
+        ├── RepeatAnalyzer         // gen:repeat from sibling cardinality
+        ├── IncrementAnalyzer      // gen:increment from monotonic sequences
+        ├── RandomRangeAnalyzer    // gen:random-* (int/amount/date/uuid)
+        ├── ChooseAnalyzer         // gen:choose from signature groups
+        └── PickCoherenceAnalyzer  // gen:pick from bijective low-card leaves
+  └── TemplateRenderer          // ShapeNode tree → annotated XML + Pools
+  └── InferredTemplate (xml, pools, warnings)
+```
+
+Pipeline is deterministic: same samples → byte-identical template,
+regardless of input ordering. Cross-sample child order is canonicalized
+via frequency-mode with lex tiebreak in `ShapeBuilder`; pool rows are
+lex-sorted on first column in `TemplateRenderer`.
+
+`ShapeBuilder.observationData()` exposes the per-xpath observation maps
+(iteration values, signatures, rows) that analyzers consume via
+`AnalysisContext`. Each analyzer is independently unit-testable against
+mocked observation data. Strict mode (`InferenceConfig.strictMode=true`)
+promotes every `InferenceWarning` to an `InferenceException`.
 
 When changing behaviour, the integration tests in
 `GeneratingXMLEventReaderTest` are the ground truth — they pin down
