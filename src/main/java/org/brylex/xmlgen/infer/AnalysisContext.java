@@ -9,20 +9,28 @@ public class AnalysisContext {
     private final InferenceConfig config;
     private final List<InferenceWarning> warnings = new ArrayList<>();
     private final Map<String, List<List<String>>> iterationValues;
+    private final Map<String, List<Signature>> signaturesPerXpath;
 
     public AnalysisContext(InferenceConfig config) {
-        this(config, List.of(), Map.of());
+        this(config, List.of(), Map.of(), Map.of());
     }
 
     public AnalysisContext(InferenceConfig config, List<InferenceWarning> initialWarnings) {
-        this(config, initialWarnings, Map.of());
+        this(config, initialWarnings, Map.of(), Map.of());
     }
 
     public AnalysisContext(InferenceConfig config, List<InferenceWarning> initialWarnings,
                            Map<String, List<List<String>>> iterationValues) {
+        this(config, initialWarnings, iterationValues, Map.of());
+    }
+
+    public AnalysisContext(InferenceConfig config, List<InferenceWarning> initialWarnings,
+                           Map<String, List<List<String>>> iterationValues,
+                           Map<String, List<Signature>> signaturesPerXpath) {
         this.config = config;
         this.warnings.addAll(initialWarnings);
         this.iterationValues = Map.copyOf(iterationValues);
+        this.signaturesPerXpath = Map.copyOf(signaturesPerXpath);
     }
 
     public InferenceConfig config() { return config; }
@@ -34,6 +42,18 @@ public class AnalysisContext {
      */
     public List<List<String>> iterationValuesAt(String xpath) {
         return iterationValues.getOrDefault(xpath, List.of());
+    }
+
+    /**
+     * Returns, for the given parent xpath, the list of child-signatures observed across
+     * all parent-instances. Each {@link Signature} is the ordered (qName, cardinality-bucket)
+     * sequence seen inside one parent-instance occurrence.
+     *
+     * <p>Populated by ShapeBuilder (wired in Task 20). Unit tests supply data directly via
+     * the four-arg constructor.
+     */
+    public List<Signature> signaturesAt(String xpath) {
+        return signaturesPerXpath.getOrDefault(xpath, List.of());
     }
 
     public void warn(InferenceWarning warning) {
