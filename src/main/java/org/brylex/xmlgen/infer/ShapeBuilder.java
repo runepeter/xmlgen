@@ -32,6 +32,29 @@ public class ShapeBuilder {
     private final Map<String, List<List<QName>>> observedSequences = new LinkedHashMap<>();
     private final List<InferenceWarning> warnings = new ArrayList<>();
 
+    /**
+     * iterationValues: leafXpath → list of per-parent-instance value sequences.
+     * Each inner list is the ordered values of that leaf within one parent-instance
+     * that has ≥ 2 same-qName leaf occurrences (i.e. the leaf repeats under that parent).
+     */
+    private final Map<String, List<List<String>>> iterationValues = new LinkedHashMap<>();
+
+    /**
+     * signatures: parentXpath → list of child-signatures (one per parent-instance observed).
+     */
+    private final Map<String, List<Signature>> signatures = new LinkedHashMap<>();
+
+    /**
+     * rows: parentXpath → list of leaf-value tuples (one per parent-instance observed).
+     * Each tuple maps leaf local-name → first-observed text value within that parent-instance.
+     */
+    private final Map<String, List<Map<String, String>>> rows = new LinkedHashMap<>();
+
+    /**
+     * Cached result of {@link #build()} — null until build() is called.
+     */
+    private ShapeNode mergedRoot = null;
+
     public ShapeBuilder(InferenceConfig config) {
         this.config = config;
     }
@@ -47,8 +70,12 @@ public class ShapeBuilder {
     /**
      * Produce a merged ShapeNode tree from all absorbed samples.
      * Fails loud if no samples were absorbed, or if sample roots disagree on element name.
+     * Idempotent: subsequent calls return the cached result.
      */
     public ShapeNode build() {
+        if (mergedRoot != null) {
+            return mergedRoot;
+        }
         if (sampleRoots.isEmpty()) {
             throw new InferenceException("at least one sample required");
         }
@@ -71,7 +98,19 @@ public class ShapeBuilder {
         }
         // Reorder children of every node in the merged tree according to canonical sequences
         applyCanonicalOrder(merged);
-        return merged;
+        mergedRoot = merged;
+        return mergedRoot;
+    }
+
+    /**
+     * Returns combined observation data from all absorbed samples. Calls {@link #build()}
+     * if not already called.
+     */
+    public ObservationData observationData() {
+        if (mergedRoot == null) {
+            build();
+        }
+        return new ObservationData(mergedRoot, warnings, iterationValues, signatures, rows);
     }
 
     /**
@@ -135,6 +174,53 @@ public class ShapeBuilder {
     }
 
     /**
+     * Per-parent-instance observation state tracked on a parallel deque during walk().
+     * Populated for each element instance to collect:
+     * <ul>
+     *   <li>ownTextValues: text values belonging directly to this element (leaf text)</li>
+     *   <li>childValueLists: leafLocalName → ordered list of text values seen for that leaf
+     *       under this parent-instance (may contain multiple entries for repeated leaves)</li>
+     *   <li>childCounts: qName → count of times that child appeared</li>
+     *   <li>firstLeafValues: leafLocalName → first observed text value (for rows)</li>
+     * </ul>
+     */
+    private static class ParentInstanceObservation {
+        /** Text values accumulated directly in this element (for leaf text passing to parent). */
+        final List<String> ownTextValues = new ArrayList<>();
+        /** Maps leaf local-name → ordered list of text values within this parent-instance. */
+        final Map<String, List<String>> childValueLists = new LinkedHashMap<>();
+        /** Maps child qName → occurrence count within this parent-instance. */
+        final Map<QName, Integer> childQNameCounts = new LinkedHashMap<>();
+        /** Maps leaf local-name → first text value observed (for rows map). */
+        final Map<String, String> firstLeafValues = new LinkedHashMap<>();
+
+        /** Called when this element has finished as a leaf, notifying the parent with all its text. */
+        void receiveLeafText(String localName, List<String> texts) {
+            for (String text : texts) {
+                childValueLists.computeIfAbsent(localName, k -> new ArrayList<>()).add(text);
+            }
+            if (!texts.isEmpty()) {
+                firstLeafValues.putIfAbsent(localName, texts.get(0));
+            }
+        }
+
+        /** Called when we see a child start element. */
+        void recordChildStart(QName qName) {
+            childQNameCounts.merge(qName, 1, Integer::sum);
+        }
+
+        /** Build the Signature from observed child counts, in the order first encountered. */
+        Signature buildSignature() {
+            List<Signature.Slot> slots = new ArrayList<>();
+            for (Map.Entry<QName, Integer> e : childQNameCounts.entrySet()) {
+                int bucket = e.getValue() >= 2 ? 2 : 1;
+                slots.add(new Signature.Slot(e.getKey(), bucket));
+            }
+            return new Signature(slots);
+        }
+    }
+
+    /**
      * Walk a single sample, producing a ShapeNode tree where same-qName siblings
      * under the same parent are collapsed into a single ChildSlot with cardinality
      * recorded via IntSummaryStatistics.accept().
@@ -150,6 +236,8 @@ public class ShapeBuilder {
         Deque<List<QName>> childOrderStack = new ArrayDeque<>();
         // Stack tracking per-element mixed-content detection state
         Deque<ElementState> stateStack = new ArrayDeque<>();
+        // Parallel stack of per-parent-instance observation state (one per open element)
+        Deque<ParentInstanceObservation> observationStack = new ArrayDeque<>();
 
         ShapeNode root = null;
         int depth = 0;
@@ -195,6 +283,11 @@ public class ShapeBuilder {
                     stateStack.peek().hasChildElement = true;
                 }
 
+                // Notify parent's observation about this child start
+                if (!observationStack.isEmpty()) {
+                    observationStack.peek().recordChildStart(name);
+                }
+
                 ShapeNode node;
                 if (parent == null) {
                     // Root element
@@ -225,6 +318,7 @@ public class ShapeBuilder {
                 childSlotStack.push(new LinkedHashMap<>());
                 childOrderStack.push(new ArrayList<>());
                 stateStack.push(new ElementState());
+                observationStack.push(new ParentInstanceObservation());
 
             } else if (event.isEndElement()) {
                 ShapeNode finishing = nodeStack.pop();
@@ -232,6 +326,7 @@ public class ShapeBuilder {
                 childSlotStack.pop();
                 List<QName> childOrder = childOrderStack.pop();
                 ElementState state = stateStack.pop();
+                ParentInstanceObservation obs = observationStack.pop();
 
                 // Mark mixed content if both significant text and child elements were seen
                 if (state.hasNonWhitespaceText && state.hasChildElement) {
@@ -258,6 +353,35 @@ public class ShapeBuilder {
                     }
                 }
 
+                // Pass leaf text up to the parent observation (if this element had text and no child elements)
+                boolean isLeafElement = !state.hasChildElement && !obs.ownTextValues.isEmpty();
+                if (isLeafElement && !observationStack.isEmpty()) {
+                    observationStack.peek().receiveLeafText(
+                            finishing.qName().getLocalPart(), obs.ownTextValues);
+                }
+
+                // Flush observation data into the three maps
+                // --- signatures ---
+                if (!obs.childQNameCounts.isEmpty()) {
+                    signatures.computeIfAbsent(finishing.xpath(), k -> new ArrayList<>())
+                            .add(obs.buildSignature());
+                }
+
+                // --- rows (leaf-value tuples per parent-instance) ---
+                if (!obs.firstLeafValues.isEmpty()) {
+                    rows.computeIfAbsent(finishing.xpath(), k -> new ArrayList<>())
+                            .add(new LinkedHashMap<>(obs.firstLeafValues));
+                }
+
+                // --- iterationValues (repeated-leaf value sequences) ---
+                for (Map.Entry<String, List<String>> e : obs.childValueLists.entrySet()) {
+                    if (e.getValue().size() >= 2) {
+                        String leafXpath = finishing.xpath() + "/" + e.getKey();
+                        iterationValues.computeIfAbsent(leafXpath, k -> new ArrayList<>())
+                                .add(List.copyOf(e.getValue()));
+                    }
+                }
+
                 depth--;
 
             } else if (event.isCharacters()) {
@@ -277,6 +401,10 @@ public class ShapeBuilder {
                     }
                     if (!nodeStack.isEmpty()) {
                         nodeStack.peek().valueSamples().add(chars.getData());
+                    }
+                    // Accumulate text in the current observation for later passing to parent
+                    if (!observationStack.isEmpty()) {
+                        observationStack.peek().ownTextValues.add(chars.getData());
                     }
                 }
             } else if (event.isProcessingInstruction()) {
