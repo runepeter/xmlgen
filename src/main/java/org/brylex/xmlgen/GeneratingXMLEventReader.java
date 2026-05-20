@@ -23,6 +23,14 @@ public class GeneratingXMLEventReader implements XMLEventReader {
     private final Random random;
     private final Deque<XMLEvent> pending = new ArrayDeque<>();
     private XMLEvent head;
+    /**
+     * The delegate recorder-stack depth when the current {@code pending} batch
+     * was populated by {@link #handleChoose()}. Events drained from
+     * {@code pending} must not be re-captured by any recorder that was already
+     * active at that depth; they may be captured by deeper (inner) recorders
+     * that are created while draining pending.
+     */
+    private int pendingOuterDepth = 0;
 
     public GeneratingXMLEventReader(final XMLEventReader delegate) {
         this(delegate, Pools.empty(), new Random());
@@ -69,7 +77,7 @@ public class GeneratingXMLEventReader implements XMLEventReader {
     private void materialize() throws XMLStreamException {
         while (head == null) {
             if (!pending.isEmpty()) {
-                head = pending.poll();
+                head = delegate.feedEvent(pending.poll(), pendingOuterDepth);
             } else {
                 XMLEvent raw = delegate.nextEvent();
                 if (isChooseStart(raw)) {
@@ -123,6 +131,7 @@ public class GeneratingXMLEventReader implements XMLEventReader {
         }
 
         List<XMLEvent> chosen = weightedPick(branches, weights);
+        pendingOuterDepth = delegate.recorderDepth();
         pending.addAll(chosen);
     }
 

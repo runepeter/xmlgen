@@ -105,10 +105,10 @@ Pass a seeded `Random` for reproducible runs:
 new GeneratingXMLEventReader(template, pools, new Random(42L));
 ```
 
-`gen:repeat` *inside* a `gen:when` branch is not supported in this
-release — the chosen branch's events bypass the main directive loop, so
-they don't trigger nested recordings. Keep `gen:repeat` outside the
-choose.
+`gen:repeat` works inside `gen:when` branches; each chosen branch
+runs through the same directive pipeline as top-level content, so
+nesting `gen:repeat` (or any other directive) inside a branch is fully
+supported.
 
 ## Example
 

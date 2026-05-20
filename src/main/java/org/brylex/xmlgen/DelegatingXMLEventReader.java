@@ -68,4 +68,25 @@ class DelegatingXMLEventReader implements XMLEventReader {
     public boolean isRecording() {
         return delegate.size() > 1;
     }
+
+    /** Returns the current recorder stack depth (1 = no active recorder). */
+    public int recorderDepth() {
+        return delegate.size();
+    }
+
+    /**
+     * Feed an externally-sourced event into any recorder that was created
+     * <em>after</em> the given {@code outerDepth} snapshot so that directives
+     * embedded inside chosen branches (e.g. {@code gen:repeat}) are captured
+     * for replay by inner recorders only. Recorders that were already active
+     * when {@code pending} was populated have already recorded the events via
+     * the normal {@link #nextEvent()} path inside {@code handleChoose()}, so
+     * they must not receive a duplicate capture.
+     */
+    public XMLEvent feedEvent(XMLEvent event, int outerDepth) {
+        if (delegate.size() > outerDepth) {
+            peekRecorder().captureExternal(event);
+        }
+        return event;
+    }
 }

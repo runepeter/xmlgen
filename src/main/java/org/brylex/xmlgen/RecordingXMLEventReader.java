@@ -94,4 +94,14 @@ class RecordingXMLEventReader implements XMLEventReader {
         return count == 0;
     }
 
+    /**
+     * Capture an event that was injected externally (e.g. from a gen:choose
+     * branch) so it gets replayed by an active gen:repeat.
+     */
+    void captureExternal(XMLEvent event) {
+        if (event.isStartElement()) count++;
+        if (event.isEndElement()) count--;
+        record.push(new StackEvent(event, random));
+    }
+
 }
