@@ -38,7 +38,29 @@ public class TemplateRenderer {
     private void renderNode(ShapeNode node, StringBuilder sb, int indent, boolean isRoot,
                             Map<String, List<Map<String, String>>> pendingPoolRows) {
 
+        // Mixed-content path: emit content in document order without pretty-print re-indenting
+        if (node.hasMixedContent()) {
+            renderMixedContent(node, sb, indent, isRoot, pendingPoolRows);
+            return;
+        }
+
         Optional<Directive> directiveOpt = node.directive();
+
+        // Choose directive: render as <gen:choose> wrapper, not an attribute
+        if (directiveOpt.isPresent() && directiveOpt.get() instanceof Directive.Choose choose) {
+            renderChoose(node, choose, sb, indent, isRoot, pendingPoolRows);
+            return;
+        }
+
+        // WARNING comment for Pick with fully-unique values (emitted before the opening tag)
+        if (directiveOpt.isPresent() && directiveOpt.get() instanceof Directive.Pick) {
+            ShapeNode.ValueSamples vs = node.valueSamples();
+            if (!vs.isEmpty() && vs.distinctCount() == vs.total()) {
+                indent(sb, indent);
+                sb.append("<!-- WARNING: every observed value at ").append(node.xpath())
+                  .append(" was unique; pool will cycle on expansion. -->\n");
+            }
+        }
 
         indent(sb, indent);
         sb.append("<").append(qNameToString(node.qName()));
@@ -54,7 +76,7 @@ public class TemplateRenderer {
               .append("=\"").append(escape(value)).append("\"");
         }
 
-        // Directive as XML attribute (Choose deferred to Task 19)
+        // Directive as XML attribute
         directiveOpt.ifPresent(d -> writeDirective(sb, d, node, pendingPoolRows));
 
         boolean hasChildren = node.orderedContent().stream()
@@ -71,9 +93,7 @@ public class TemplateRenderer {
         if (hasChildren) {
             sb.append("\n");
             for (ContentItem ci : node.orderedContent()) {
-                if (ci instanceof ContentItem.ChildSlot cs) {
-                    renderNode(cs.node(), sb, indent + 2, false, pendingPoolRows);
-                }
+                renderContentItem(ci, sb, indent + 2, pendingPoolRows);
             }
             indent(sb, indent);
         } else {
@@ -87,6 +107,107 @@ public class TemplateRenderer {
         }
 
         sb.append("</").append(qNameToString(node.qName())).append(">\n");
+    }
+
+    /**
+     * Renders a mixed-content element: text and child elements are emitted in
+     * document order without extra newlines between siblings, preserving the
+     * original inline layout.
+     */
+    private void renderMixedContent(ShapeNode node, StringBuilder sb, int indent, boolean isRoot,
+                                    Map<String, List<Map<String, String>>> pendingPoolRows) {
+        indent(sb, indent);
+        sb.append("<").append(qNameToString(node.qName()));
+        if (isRoot) {
+            sb.append(" xmlns:gen=\"urn:xml:gen\"");
+        }
+        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
+            String value = e.getValue().counts().keySet().iterator().next();
+            sb.append(" ").append(qNameToString(e.getKey()))
+              .append("=\"").append(escape(value)).append("\"");
+        }
+        sb.append(">");
+
+        for (ContentItem ci : node.orderedContent()) {
+            switch (ci) {
+                case ContentItem.Text t -> sb.append(escape(t.value()));
+                case ContentItem.ChildSlot cs -> {
+                    // Inline child: render at indent 0, then strip trailing newline
+                    StringBuilder childSb = new StringBuilder();
+                    renderNode(cs.node(), childSb, 0, false, pendingPoolRows);
+                    String childStr = childSb.toString();
+                    if (childStr.endsWith("\n")) {
+                        childStr = childStr.substring(0, childStr.length() - 1);
+                    }
+                    sb.append(childStr);
+                }
+                case ContentItem.Cdata cdata -> sb.append("<![CDATA[").append(cdata.value()).append("]]>");
+                case ContentItem.Comment comment -> sb.append("<!--").append(comment.value()).append("-->");
+                case ContentItem.ProcessingInstruction pi ->
+                        sb.append("<?").append(pi.target()).append(" ").append(pi.data()).append("?>");
+            }
+        }
+
+        sb.append("</").append(qNameToString(node.qName())).append(">\n");
+    }
+
+    /**
+     * Renders a Choose directive as a {@code <gen:choose>} block with weighted
+     * {@code <gen:when>} branches inside the element body.
+     */
+    private void renderChoose(ShapeNode node, Directive.Choose choose, StringBuilder sb,
+                               int indent, boolean isRoot,
+                               Map<String, List<Map<String, String>>> pendingPoolRows) {
+        indent(sb, indent);
+        sb.append("<").append(qNameToString(node.qName()));
+        if (isRoot) {
+            sb.append(" xmlns:gen=\"urn:xml:gen\"");
+        }
+        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
+            String value = e.getValue().counts().keySet().iterator().next();
+            sb.append(" ").append(qNameToString(e.getKey()))
+              .append("=\"").append(escape(value)).append("\"");
+        }
+        sb.append(">\n");
+
+        indent(sb, indent + 2);
+        sb.append("<gen:choose>\n");
+
+        for (Directive.Branch branch : choose.branches()) {
+            indent(sb, indent + 4);
+            sb.append("<gen:when weight=\"").append(branch.weight()).append("\">\n");
+            for (ContentItem ci : branch.body()) {
+                renderContentItem(ci, sb, indent + 6, pendingPoolRows);
+            }
+            indent(sb, indent + 4);
+            sb.append("</gen:when>\n");
+        }
+
+        indent(sb, indent + 2);
+        sb.append("</gen:choose>\n");
+
+        indent(sb, indent);
+        sb.append("</").append(qNameToString(node.qName())).append(">\n");
+    }
+
+    private void renderContentItem(ContentItem ci, StringBuilder sb, int indent,
+                                   Map<String, List<Map<String, String>>> pendingPoolRows) {
+        switch (ci) {
+            case ContentItem.ChildSlot cs -> renderNode(cs.node(), sb, indent, false, pendingPoolRows);
+            case ContentItem.Text t -> { indent(sb, indent); sb.append(escape(t.value())).append("\n"); }
+            case ContentItem.Cdata cdata -> {
+                indent(sb, indent);
+                sb.append("<![CDATA[").append(cdata.value()).append("]]>\n");
+            }
+            case ContentItem.Comment comment -> {
+                indent(sb, indent);
+                sb.append("<!--").append(comment.value()).append("-->\n");
+            }
+            case ContentItem.ProcessingInstruction pi -> {
+                indent(sb, indent);
+                sb.append("<?").append(pi.target()).append(" ").append(pi.data()).append("?>\n");
+            }
+        }
     }
 
     private void writeDirective(StringBuilder sb, Directive d, ShapeNode node,
@@ -109,8 +230,8 @@ public class TemplateRenderer {
                     pendingPoolRows.computeIfAbsent(p.poolName(), k -> new ArrayList<>()).add(row);
                 }
             }
-            case Directive.Choose c -> throw new UnsupportedOperationException(
-                    "Choose directive rendering not yet implemented (Task 19)");
+            case Directive.Choose c -> throw new IllegalStateException(
+                    "Choose directive should be dispatched before writeDirective is called");
         }
     }
 

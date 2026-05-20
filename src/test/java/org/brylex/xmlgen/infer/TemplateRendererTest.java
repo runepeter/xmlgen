@@ -86,6 +86,58 @@ class TemplateRendererTest {
         assertThat(xml).doesNotContain("id=\"B\"");
     }
 
+    // --- Task 19 tests ---
+
+    @Test
+    void mixedContentIsRenderedVerbatim() {
+        ShapeNode root = new ShapeNode(new QName("p"), "/p");
+        root.markMixedContent();
+        root.orderedContent().add(new ContentItem.Text("hello "));
+        ShapeNode b = new ShapeNode(new QName("b"), "/p/b");
+        root.orderedContent().add(new ContentItem.ChildSlot(b));
+        b.valueSamples().add("world");
+        root.orderedContent().add(new ContentItem.Text("!"));
+
+        String xml = new TemplateRenderer().render(root).xml();
+        assertThat(xml).contains("hello <b>world</b>!");
+    }
+
+    @Test
+    void chooseDirectiveEmitsWrapper() {
+        ShapeNode root = new ShapeNode(new QName("entry"), "/entry");
+        ShapeNode a = new ShapeNode(new QName("a"), "/entry/a");
+        ShapeNode b = new ShapeNode(new QName("b"), "/entry/b");
+        a.valueSamples().add("X");
+        b.valueSamples().add("Y");
+        Directive.Choose choose = new Directive.Choose(java.util.List.of(
+                new Directive.Branch(60, java.util.List.of(new ContentItem.ChildSlot(a))),
+                new Directive.Branch(40, java.util.List.of(new ContentItem.ChildSlot(b)))
+        ));
+        root.setDirective(choose);
+
+        String xml = new TemplateRenderer().render(root).xml();
+        assertThat(xml).contains("<gen:choose>");
+        assertThat(xml).contains("<gen:when weight=\"60\">");
+        assertThat(xml).contains("<gen:when weight=\"40\">");
+        assertThat(xml).contains("</gen:choose>");
+    }
+
+    @Test
+    void uniqueValuesEmitWarningComment() {
+        ShapeNode root = new ShapeNode(new QName("root"), "/root");
+        ShapeNode id = new ShapeNode(new QName("id"), "/root/id");
+        root.orderedContent().add(new ContentItem.ChildSlot(id));
+        // Every observed value is unique
+        id.valueSamples().add("X1");
+        id.valueSamples().add("X2");
+        id.valueSamples().add("X3");
+        id.setDirective(new Directive.Pick("root", "id"));
+
+        String xml = new TemplateRenderer().render(root).xml();
+        assertThat(xml).contains("WARNING");
+        assertThat(xml).contains("every observed value");
+    }
+
     // --- helpers ---
 
     private ShapeNode withChild(String name) {
