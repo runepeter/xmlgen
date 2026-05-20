@@ -103,6 +103,49 @@ class ShapeBuilderTest {
           .hasMessageContaining("maxSampleDepth");
     }
 
+    @Test
+    void canonicalOrderUsesFrequencyMode() throws Exception {
+        // 3 samples: 2 with order (a,b), 1 with order (b,a) → canonical is (a,b)
+        ShapeNode root = build(
+                "<root><a/><b/></root>",
+                "<root><a/><b/></root>",
+                "<root><b/><a/></root>"
+        );
+        List<String> order = childOrder(root);
+        assertThat(order).containsExactly("a", "b");
+    }
+
+    @Test
+    void canonicalOrderUsesLexTiebreakOnEqualFrequency() throws Exception {
+        // 1 sample with (a,b), 1 with (b,a) — tie; lex: (a,b) < (b,a)
+        ShapeNode root = build(
+                "<root><a/><b/></root>",
+                "<root><b/><a/></root>"
+        );
+        List<String> order = childOrder(root);
+        assertThat(order).containsExactly("a", "b");
+    }
+
+    @Test
+    void inputOrderIndependence() throws Exception {
+        ShapeNode forward = build(
+                "<root><a/><b/></root>",
+                "<root><b/><a/></root>"
+        );
+        ShapeNode reverse = build(
+                "<root><b/><a/></root>",
+                "<root><a/><b/></root>"
+        );
+        assertThat(childOrder(forward)).isEqualTo(childOrder(reverse));
+    }
+
+    private List<String> childOrder(ShapeNode root) {
+        return root.orderedContent().stream()
+                .filter(ci -> ci instanceof ContentItem.ChildSlot)
+                .map(ci -> ((ContentItem.ChildSlot) ci).node().qName().getLocalPart())
+                .toList();
+    }
+
     private ShapeNode build(String... samples) throws Exception {
         ShapeBuilder builder = new ShapeBuilder(InferenceConfig.defaults());
         for (String s : samples) {

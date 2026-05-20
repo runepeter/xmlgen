@@ -21,6 +21,13 @@ public class ShapeBuilder {
 
     private final InferenceConfig config;
     private final List<ShapeNode> sampleRoots = new ArrayList<>();
+    /**
+     * Accumulates observed child-qName orderings per xpath across all samples.
+     * Key: parent xpath. Value: list of ordered child-qName sequences observed
+     * in individual parent instances.
+     */
+    private final Map<String, List<List<QName>>> observedSequences = new LinkedHashMap<>();
+    private final List<InferenceWarning> warnings = new ArrayList<>();
 
     public ShapeBuilder(InferenceConfig config) {
         this.config = config;
@@ -55,7 +62,17 @@ public class ShapeBuilder {
         for (ShapeNode r : sampleRoots) {
             mergeInto(merged, r);
         }
+        // Reorder children of every node in the merged tree according to canonical sequences
+        applyCanonicalOrder(merged);
         return merged;
+    }
+
+    /**
+     * Returns warnings accumulated during {@link #build()} — e.g. ambiguous child ordering.
+     * Will be consumed by AnalysisContext in Task 12+.
+     */
+    public List<InferenceWarning> warnings() {
+        return List.copyOf(warnings);
     }
 
     // -------------------------------------------------------------------------
@@ -74,6 +91,8 @@ public class ShapeBuilder {
         Deque<Map<QName, Integer>> childCountStack = new ArrayDeque<>();
         // Stack of "already-seen child ShapeNodes by qName" for the current parent
         Deque<Map<QName, ShapeNode>> childSlotStack = new ArrayDeque<>();
+        // Stack tracking ordered child-qName sequence (deduplicated) for each parent instance
+        Deque<List<QName>> childOrderStack = new ArrayDeque<>();
 
         ShapeNode root = null;
         int depth = 0;
@@ -111,12 +130,15 @@ public class ShapeBuilder {
                     // Reuse existing ChildSlot for same qName, or create a new one
                     Map<QName, ShapeNode> childSlots = childSlotStack.peek();
                     Map<QName, Integer> childCounts = childCountStack.peek();
+                    List<QName> childOrder = childOrderStack.peek();
 
                     node = childSlots.get(name);
                     if (node == null) {
                         node = new ShapeNode(name, xpath);
                         childSlots.put(name, node);
                         parent.orderedContent().add(new ContentItem.ChildSlot(node));
+                        // First time we see this child qName in this parent instance
+                        childOrder.add(name);
                     }
                     childCounts.merge(name, 1, Integer::sum);
                 }
@@ -127,19 +149,23 @@ public class ShapeBuilder {
                 nodeStack.push(node);
                 childCountStack.push(new LinkedHashMap<>());
                 childSlotStack.push(new LinkedHashMap<>());
+                childOrderStack.push(new ArrayList<>());
 
             } else if (event.isEndElement()) {
                 ShapeNode finishing = nodeStack.pop();
                 Map<QName, Integer> childCounts = childCountStack.pop();
                 childSlotStack.pop();
+                List<QName> childOrder = childOrderStack.pop();
+
+                // Record the observed child order sequence for this xpath
+                if (!childOrder.isEmpty()) {
+                    observedSequences
+                            .computeIfAbsent(finishing.xpath(), k -> new ArrayList<>())
+                            .add(List.copyOf(childOrder));
+                }
 
                 // Record how many times each child qName appeared under this instance
                 for (Map.Entry<QName, Integer> entry : childCounts.entrySet()) {
-                    Map<QName, ShapeNode> parentSlots = childSlotStack.isEmpty()
-                            ? Map.of()
-                            : childSlotStack.peek();
-                    // The child node is already keyed in the parent's childSlotStack;
-                    // but we already popped it. Look up in finishing's orderedContent instead.
                     ShapeNode childNode = finishing.orderedContent().stream()
                             .filter(ci -> ci instanceof ContentItem.ChildSlot cs
                                     && cs.node().qName().equals(entry.getKey()))
@@ -251,5 +277,115 @@ public class ShapeBuilder {
 
             mergeInto(destChild, srcChild);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Canonical ordering
+    // -------------------------------------------------------------------------
+
+    /**
+     * Post-process the merged tree: reorder children of each node according to the
+     * most-frequent observed child-qName sequence (canonical order). Ties are broken
+     * lexicographically on qName local-part sequence. An AmbiguousOrder warning is
+     * emitted when there is a frequency tie among non-subset alternatives.
+     */
+    private void applyCanonicalOrder(ShapeNode node) {
+        List<List<QName>> sequences = observedSequences.get(node.xpath());
+        if (sequences != null && !sequences.isEmpty()) {
+            List<QName> canonical = pickCanonical(sequences, node.xpath(), warnings);
+            reorderChildren(node, canonical);
+        }
+        // Recurse into children
+        for (ContentItem ci : node.orderedContent()) {
+            if (ci instanceof ContentItem.ChildSlot cs) {
+                applyCanonicalOrder(cs.node());
+            }
+        }
+    }
+
+    /**
+     * Reorder the ChildSlot entries in {@code node.orderedContent()} according to
+     * {@code canonical}. Children not mentioned in the canonical sequence (i.e. seen
+     * only in some samples) are appended in their existing relative order.
+     */
+    private void reorderChildren(ShapeNode node, List<QName> canonical) {
+        List<ContentItem> content = node.orderedContent();
+
+        // Extract existing child slots by qName (preserving relative order for extras)
+        Map<QName, ContentItem.ChildSlot> slotsByQName = new LinkedHashMap<>();
+        List<ContentItem> nonChildItems = new ArrayList<>();
+        for (ContentItem ci : content) {
+            if (ci instanceof ContentItem.ChildSlot cs) {
+                slotsByQName.put(cs.node().qName(), cs);
+            } else {
+                nonChildItems.add(ci);
+            }
+        }
+
+        content.clear();
+        content.addAll(nonChildItems);
+
+        // Add in canonical order first
+        Set<QName> placed = new LinkedHashSet<>();
+        for (QName qn : canonical) {
+            ContentItem.ChildSlot slot = slotsByQName.get(qn);
+            if (slot != null) {
+                content.add(slot);
+                placed.add(qn);
+            }
+        }
+        // Append any children not covered by the canonical sequence
+        for (Map.Entry<QName, ContentItem.ChildSlot> e : slotsByQName.entrySet()) {
+            if (!placed.contains(e.getKey())) {
+                content.add(e.getValue());
+            }
+        }
+    }
+
+    /**
+     * Pick the canonical child sequence from a list of observed sequences.
+     * Uses most-frequent sequence; ties broken by lexicographic order of local-part sequences.
+     * Emits an AmbiguousOrder warning when a frequency tie exists.
+     */
+    private List<QName> pickCanonical(List<List<QName>> sequences, String xpath,
+                                       List<InferenceWarning> warningsSink) {
+        if (sequences.isEmpty()) return List.of();
+
+        Map<List<QName>, Integer> counts = new LinkedHashMap<>();
+        for (List<QName> s : sequences) {
+            counts.merge(s, 1, Integer::sum);
+        }
+
+        List<Map.Entry<List<QName>, Integer>> sorted = new ArrayList<>(counts.entrySet());
+        sorted.sort((a, b) -> {
+            int c = Integer.compare(b.getValue(), a.getValue());
+            if (c != 0) return c;
+            return compareSequences(a.getKey(), b.getKey());
+        });
+
+        Map.Entry<List<QName>, Integer> top = sorted.get(0);
+        if (sorted.size() > 1 && sorted.get(1).getValue().equals(top.getValue())) {
+            warningsSink.add(new InferenceWarning.AmbiguousOrder(
+                    xpath, reprSeq(top.getKey()), reprSeq(sorted.get(1).getKey())));
+        }
+        return top.getKey();
+    }
+
+    private int compareSequences(List<QName> a, List<QName> b) {
+        int n = Math.min(a.size(), b.size());
+        for (int i = 0; i < n; i++) {
+            int c = a.get(i).getLocalPart().compareTo(b.get(i).getLocalPart());
+            if (c != 0) return c;
+        }
+        return Integer.compare(a.size(), b.size());
+    }
+
+    private String reprSeq(List<QName> seq) {
+        StringBuilder sb = new StringBuilder("(");
+        for (int i = 0; i < seq.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(seq.get(i).getLocalPart());
+        }
+        return sb.append(")").toString();
     }
 }
