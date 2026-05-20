@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice>
+  <header>
+    <number>10002</number>
+    <issued>2024-03-22</issued>
+    <customer>
+      <name>Beta Supplies AS</name>
+      <orgnr>923456789</orgnr>
+    </customer>
+  </header>
+  <line>
+    <sku>SKU-002</sku>
+    <qty>7</qty>
+    <price>299.00</price>
+  </line>
+  <line>
+    <sku>SKU-005</sku>
+    <qty>1</qty>
+    <price>59.50</price>
+  </line>
+</invoice>

@@ -100,4 +100,20 @@ class TemplateInferrerAcceptanceTest {
         collectXPaths(doc.getRootElement(), "/" + doc.getRootElement().getName(), out);
         return out;
     }
+
+    @Test
+    void typicalInvoiceMatchesGolden() throws Exception {
+        List<XMLEventReader> samples = loadSamples("infer/tier-b/typical-invoice/samples", 5);
+        InferredTemplate t = TemplateInferrer.infer(samples);
+
+        String resourcePath = "infer/tier-b/typical-invoice/expected.xml";
+        if (Boolean.getBoolean("regenerate.goldens")) {
+            java.nio.file.Path target = java.nio.file.Path.of("src/test/resources", resourcePath);
+            java.nio.file.Files.writeString(target, t.templateXml());
+            return;
+        }
+        String expected = new String(getClass().getClassLoader()
+                .getResourceAsStream(resourcePath).readAllBytes());
+        assertThat(t.templateXml()).isEqualTo(expected);
+    }
 }

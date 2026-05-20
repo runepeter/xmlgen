@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice>
+  <header>
+    <number>10003</number>
+    <issued>2024-06-10</issued>
+    <customer>
+      <name>Gamma Trading Ltd</name>
+      <orgnr>934567890</orgnr>
+    </customer>
+  </header>
+  <line>
+    <sku>SKU-003</sku>
+    <qty>12</qty>
+    <price>999.95</price>
+  </line>
+  <line>
+    <sku>SKU-007</sku>
+    <qty>5</qty>
+    <price>75.00</price>
+  </line>
+  <line>
+    <sku>SKU-009</sku>
+    <qty>2</qty>
+    <price>199.99</price>
+  </line>
+</invoice>
