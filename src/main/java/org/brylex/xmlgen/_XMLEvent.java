@@ -12,6 +12,7 @@ import java.io.Writer;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 class _XMLEvent implements StartElement {
@@ -23,8 +24,10 @@ class _XMLEvent implements StartElement {
     public static final QName REPEAT = new QName("urn:xml:gen", "repeat");
     public static final QName INCREMENT = new QName("urn:xml:gen", "increment");
     private int increment;
+    private final Random random;
 
-    public _XMLEvent(final StartElement delegate) {
+    public _XMLEvent(final StartElement delegate, final Random random) {
+        this.random = random;
 
         for (Iterator<Attribute> it = delegate.getAttributes(); it.hasNext(); ) {
             Attribute attribute = it.next();
@@ -32,10 +35,14 @@ class _XMLEvent implements StartElement {
 
             if ("urn:xml:gen".equals(qName.getNamespaceURI())) {
 
-                attributes.put(qName, attribute);
-
-                if (REPEAT.equals(qName) && Integer.parseInt(attribute.getValue()) > 1) {
-                    this.template.set(true);
+                if (REPEAT.equals(qName)) {
+                    int resolved = resolveRepeat(attribute.getValue());
+                    if (resolved > 1) {
+                        this.template.set(true);
+                    }
+                    attributes.put(qName, new _Attribute(attribute, Integer.toString(resolved)));
+                } else {
+                    attributes.put(qName, attribute);
                 }
 
                 if (INCREMENT.equals(qName)) {
@@ -57,6 +64,23 @@ class _XMLEvent implements StartElement {
             raw = inner.delegate;
         }
         this.delegate = raw;
+    }
+
+    private int resolveRepeat(String value) {
+        int sep = value.indexOf("..");
+        if (sep < 0) {
+            return Integer.parseInt(value);
+        }
+        int min = Integer.parseInt(value.substring(0, sep).trim());
+        int max = Integer.parseInt(value.substring(sep + 2).trim());
+        if (min > max) {
+            throw new IllegalArgumentException(
+                    "gen:repeat min must be <= max, got '" + value + "'");
+        }
+        if (min == max) {
+            return min;
+        }
+        return min + random.nextInt(max - min + 1);
     }
 
     public QName getName() {

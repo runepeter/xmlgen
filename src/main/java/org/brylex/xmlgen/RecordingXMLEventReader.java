@@ -5,18 +5,21 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.XMLEvent;
 import java.util.*;
+import java.util.Random;
 
 class RecordingXMLEventReader implements XMLEventReader {
 
     private final XMLEventReader parent;
+    private final Random random;
 
     private final Stack<StackEvent> record = new Stack<StackEvent>();
     private final Set<Location> locations = new HashSet<Location>();
 
     private int count = 1;
 
-    RecordingXMLEventReader(final XMLEventReader parent, final StackEvent stackEvent) {
+    RecordingXMLEventReader(final XMLEventReader parent, final StackEvent stackEvent, final Random random) {
         this.parent = parent;
+        this.random = random;
         record.push(stackEvent);
 
         locations.add(stackEvent.getEvent().getLocation());
@@ -36,7 +39,7 @@ class RecordingXMLEventReader implements XMLEventReader {
                 count--;
             }
 
-            record.push(new StackEvent(event));
+            record.push(new StackEvent(event, random));
         }
 
         return event;

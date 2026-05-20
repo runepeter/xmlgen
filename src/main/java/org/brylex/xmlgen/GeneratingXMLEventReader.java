@@ -39,7 +39,7 @@ public class GeneratingXMLEventReader implements XMLEventReader {
             chain = new PoolPickXMLEventReader(chain, pools);
         }
         chain = new RandomXMLEventReader(chain, random);
-        this.delegate = new DelegatingXMLEventReader(new TextProcessingXMLEventReader(chain));
+        this.delegate = new DelegatingXMLEventReader(new TextProcessingXMLEventReader(chain, random));
         this.random = random;
     }
 
@@ -49,11 +49,11 @@ public class GeneratingXMLEventReader implements XMLEventReader {
         XMLEvent raw = head;
         head = null;
 
-        StackEvent event = new StackEvent(raw);
+        StackEvent event = new StackEvent(raw, random);
 
         if (event.isTemplate()) {
 
-            RecordingXMLEventReader recordingReader = new RecordingXMLEventReader(delegate.current(), event);
+            RecordingXMLEventReader recordingReader = new RecordingXMLEventReader(delegate.current(), event, random);
             delegate.newRecorder(recordingReader);
 
             return returnableEvent(event);
