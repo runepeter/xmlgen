@@ -5,6 +5,9 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.Characters;
+import javax.xml.stream.events.Comment;
+import javax.xml.stream.events.Namespace;
+import javax.xml.stream.events.ProcessingInstruction;
 import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import java.util.*;
@@ -58,6 +61,10 @@ public class ShapeBuilder {
                                 + rootName.getLocalPart() + " vs " + otherName.getLocalPart());
             }
         }
+        // Check mixed-content divergence across all pairs of per-sample trees
+        if (sampleRoots.size() > 1) {
+            checkMixedContentConsistency(sampleRoots);
+        }
         ShapeNode merged = new ShapeNode(rootName, "/" + rootName.getLocalPart());
         for (ShapeNode r : sampleRoots) {
             mergeInto(merged, r);
@@ -65,6 +72,48 @@ public class ShapeBuilder {
         // Reorder children of every node in the merged tree according to canonical sequences
         applyCanonicalOrder(merged);
         return merged;
+    }
+
+    /**
+     * Cross-check all pairs of per-sample trees for mixed-content consistency.
+     * Uses the first sample as the reference and verifies each subsequent sample matches
+     * its hasMixedContent at every xpath that appears in both.
+     */
+    private void checkMixedContentConsistency(List<ShapeNode> roots) {
+        // Build a flat map of xpath -> hasMixedContent from the first sample
+        Map<String, Boolean> referenceFlags = new LinkedHashMap<>();
+        collectMixedContentFlags(roots.get(0), referenceFlags);
+
+        for (int i = 1; i < roots.size(); i++) {
+            Map<String, Boolean> currentFlags = new LinkedHashMap<>();
+            collectMixedContentFlags(roots.get(i), currentFlags);
+            for (Map.Entry<String, Boolean> ref : referenceFlags.entrySet()) {
+                Boolean current = currentFlags.get(ref.getKey());
+                if (current != null && !current.equals(ref.getValue())) {
+                    throw new InferenceException(
+                            "mixed-content divergence at " + ref.getKey()
+                                    + ": samples disagree on whether content is mixed");
+                }
+            }
+            // Also check xpaths in current that exist in reference
+            for (Map.Entry<String, Boolean> cur : currentFlags.entrySet()) {
+                Boolean ref = referenceFlags.get(cur.getKey());
+                if (ref != null && !ref.equals(cur.getValue())) {
+                    throw new InferenceException(
+                            "mixed-content divergence at " + cur.getKey()
+                                    + ": samples disagree on whether content is mixed");
+                }
+            }
+        }
+    }
+
+    private void collectMixedContentFlags(ShapeNode node, Map<String, Boolean> result) {
+        result.put(node.xpath(), node.hasMixedContent());
+        for (ContentItem ci : node.orderedContent()) {
+            if (ci instanceof ContentItem.ChildSlot cs) {
+                collectMixedContentFlags(cs.node(), result);
+            }
+        }
     }
 
     /**
@@ -78,6 +127,12 @@ public class ShapeBuilder {
     // -------------------------------------------------------------------------
     // Walking
     // -------------------------------------------------------------------------
+
+    /** Per-element state used during walk() to detect mixed content. */
+    private static class ElementState {
+        boolean hasNonWhitespaceText;
+        boolean hasChildElement;
+    }
 
     /**
      * Walk a single sample, producing a ShapeNode tree where same-qName siblings
@@ -93,6 +148,8 @@ public class ShapeBuilder {
         Deque<Map<QName, ShapeNode>> childSlotStack = new ArrayDeque<>();
         // Stack tracking ordered child-qName sequence (deduplicated) for each parent instance
         Deque<List<QName>> childOrderStack = new ArrayDeque<>();
+        // Stack tracking per-element mixed-content detection state
+        Deque<ElementState> stateStack = new ArrayDeque<>();
 
         ShapeNode root = null;
         int depth = 0;
@@ -110,6 +167,18 @@ public class ShapeBuilder {
                 StartElement se = event.asStartElement();
                 QName name = se.getName();
 
+                // Check for xmlns:gen with a conflicting URI on any element
+                @SuppressWarnings("unchecked")
+                Iterator<Namespace> nsIt = se.getNamespaces();
+                while (nsIt.hasNext()) {
+                    Namespace ns = nsIt.next();
+                    if ("gen".equals(ns.getPrefix()) && !GEN_NS.equals(ns.getNamespaceURI())) {
+                        throw new InferenceException(
+                                "sample " + sampleIndex + " declares xmlns:gen with conflicting URI: "
+                                        + ns.getNamespaceURI() + " (expected " + GEN_NS + ")");
+                    }
+                }
+
                 // Reject gen: namespace elements
                 if (GEN_NS.equals(name.getNamespaceURI())) {
                     throw new InferenceException(
@@ -120,6 +189,11 @@ public class ShapeBuilder {
                 String xpath = (parent == null)
                         ? "/" + name.getLocalPart()
                         : parent.xpath() + "/" + name.getLocalPart();
+
+                // Mark parent as having a child element (for mixed-content detection)
+                if (!stateStack.isEmpty()) {
+                    stateStack.peek().hasChildElement = true;
+                }
 
                 ShapeNode node;
                 if (parent == null) {
@@ -150,12 +224,19 @@ public class ShapeBuilder {
                 childCountStack.push(new LinkedHashMap<>());
                 childSlotStack.push(new LinkedHashMap<>());
                 childOrderStack.push(new ArrayList<>());
+                stateStack.push(new ElementState());
 
             } else if (event.isEndElement()) {
                 ShapeNode finishing = nodeStack.pop();
                 Map<QName, Integer> childCounts = childCountStack.pop();
                 childSlotStack.pop();
                 List<QName> childOrder = childOrderStack.pop();
+                ElementState state = stateStack.pop();
+
+                // Mark mixed content if both significant text and child elements were seen
+                if (state.hasNonWhitespaceText && state.hasChildElement) {
+                    finishing.markMixedContent();
+                }
 
                 // Record the observed child order sequence for this xpath
                 if (!childOrder.isEmpty()) {
@@ -181,11 +262,34 @@ public class ShapeBuilder {
 
             } else if (event.isCharacters()) {
                 Characters chars = event.asCharacters();
-                if (!nodeStack.isEmpty() && !chars.isWhiteSpace() && !chars.isIgnorableWhiteSpace()) {
-                    nodeStack.peek().valueSamples().add(chars.getData());
+                if (chars.isCData()) {
+                    // CDATA counts as significant text for mixed-content detection
+                    if (!stateStack.isEmpty()) {
+                        stateStack.peek().hasNonWhitespaceText = true;
+                    }
+                    if (!nodeStack.isEmpty()) {
+                        nodeStack.peek().orderedContent().add(new ContentItem.Cdata(chars.getData()));
+                    }
+                } else if (!chars.isWhiteSpace() && !chars.isIgnorableWhiteSpace()) {
+                    // Regular significant text
+                    if (!stateStack.isEmpty()) {
+                        stateStack.peek().hasNonWhitespaceText = true;
+                    }
+                    if (!nodeStack.isEmpty()) {
+                        nodeStack.peek().valueSamples().add(chars.getData());
+                    }
+                }
+            } else if (event.isProcessingInstruction()) {
+                ProcessingInstruction pi = (ProcessingInstruction) event;
+                if (!nodeStack.isEmpty()) {
+                    nodeStack.peek().orderedContent().add(
+                            new ContentItem.ProcessingInstruction(pi.getTarget(), pi.getData()));
+                }
+            } else if (event instanceof Comment c) {
+                if (!nodeStack.isEmpty()) {
+                    nodeStack.peek().orderedContent().add(new ContentItem.Comment(c.getText()));
                 }
             }
-            // Other event types (PI, Comment, CDATA) deferred to Task 11
         }
 
         if (root == null) {
@@ -221,6 +325,11 @@ public class ShapeBuilder {
      * recursively merges children.
      */
     private void mergeInto(ShapeNode dest, ShapeNode src) {
+        // Propagate mixed-content flag
+        if (src.hasMixedContent()) {
+            dest.markMixedContent();
+        }
+
         // Merge text value samples
         for (Map.Entry<String, Integer> e : src.valueSamples().counts().entrySet()) {
             for (int i = 0; i < e.getValue(); i++) {
@@ -244,6 +353,21 @@ public class ShapeBuilder {
         for (ContentItem ci : dest.orderedContent()) {
             if (ci instanceof ContentItem.ChildSlot cs) {
                 destChildren.put(cs.node().qName(), cs.node());
+            }
+        }
+
+        // Propagate non-ChildSlot content items (CDATA, PI, Comment) from src to dest
+        // if dest doesn't already have them (avoid duplicating across multiple samples).
+        Set<ContentItem> existingNonSlotItems = new java.util.HashSet<>();
+        for (ContentItem ci : dest.orderedContent()) {
+            if (!(ci instanceof ContentItem.ChildSlot)) {
+                existingNonSlotItems.add(ci);
+            }
+        }
+        for (ContentItem ci : src.orderedContent()) {
+            if (!(ci instanceof ContentItem.ChildSlot) && !existingNonSlotItems.contains(ci)) {
+                dest.orderedContent().add(ci);
+                existingNonSlotItems.add(ci);
             }
         }
 

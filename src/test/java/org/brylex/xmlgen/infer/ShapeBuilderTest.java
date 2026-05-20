@@ -13,6 +13,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ShapeBuilderTest {
 
     private static final XMLInputFactory FACTORY = XMLInputFactory.newFactory();
+    // Woodstox preserves CDATA sections as distinct events (isCData() == true)
+    private static final XMLInputFactory CDATA_FACTORY;
+
+    static {
+        // Explicitly use Woodstox to ensure CDATA sections are NOT coalesced into
+        // regular character events — the JDK's built-in factory ignores IS_COALESCING=false
+        // for the isCData() flag.
+        CDATA_FACTORY = new com.ctc.wstx.stax.WstxInputFactory();
+        CDATA_FACTORY.setProperty(XMLInputFactory.IS_COALESCING, Boolean.FALSE);
+    }
 
     @Test
     void buildsTreeFromSingleSample() throws Exception {
@@ -153,6 +163,59 @@ class ShapeBuilderTest {
             builder.absorb(r);
         }
         return builder.build();
+    }
+
+    @Test
+    void mixedContentIsMarked() throws Exception {
+        ShapeNode root = build("<root><p>hello <b>world</b>!</p></root>");
+        ShapeNode p = childOf(root, "p");
+        assertThat(p.hasMixedContent()).isTrue();
+    }
+
+    @Test
+    void pureStructuredElementIsNotMixed() throws Exception {
+        ShapeNode root = build("<root><line><sku>X</sku></line></root>");
+        ShapeNode line = childOf(root, "line");
+        assertThat(line.hasMixedContent()).isFalse();
+        ShapeNode sku = childOf(line, "sku");
+        assertThat(sku.hasMixedContent()).isFalse();
+    }
+
+    @Test
+    void defaultNamespaceIsPreserved() throws Exception {
+        ShapeNode root = build("<order xmlns=\"http://schemas.com/v1\"><line/></order>");
+        assertThat(root.qName().getNamespaceURI()).isEqualTo("http://schemas.com/v1");
+    }
+
+    @Test
+    void genPrefixWithDifferentUriThrows() {
+        assertThatThrownBy(() -> build(
+                "<order xmlns:gen=\"http://other-namespace.com/\"><line gen:foo=\"bar\"/></order>"
+        )).isInstanceOf(InferenceException.class)
+          .hasMessageContaining("gen");
+    }
+
+    @Test
+    void cdataIsCapturedAsContentItem() throws Exception {
+        // Must use a non-coalescing factory so the CDATA section is preserved as a distinct event
+        ShapeBuilder builder = new ShapeBuilder(InferenceConfig.defaults());
+        XMLEventReader r = CDATA_FACTORY.createXMLEventReader(
+                new StringReader("<root><note><![CDATA[<raw>data</raw>]]></note></root>"));
+        builder.absorb(r);
+        ShapeNode root = builder.build();
+        ShapeNode note = childOf(root, "note");
+        boolean hasCdata = note.orderedContent().stream().anyMatch(ci -> ci instanceof ContentItem.Cdata);
+        assertThat(hasCdata).isTrue();
+    }
+
+    @Test
+    void mixedContentDivergenceThrows() {
+        // Sample 1: mixed (text + child). Sample 2: only structured (no significant text).
+        assertThatThrownBy(() -> build(
+                "<root><p>before<b>middle</b>after</p></root>",
+                "<root><p><b>middle</b></p></root>"
+        )).isInstanceOf(InferenceException.class)
+          .hasMessageContaining("mixed-content");
     }
 
     private ShapeNode childOf(ShapeNode parent, String localName) {
