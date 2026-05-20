@@ -69,9 +69,10 @@ public class TemplateRenderer {
             sb.append(" xmlns:gen=\"urn:xml:gen\"");
         }
 
-        // Plain attributes — first observed value only
+        // Plain attributes — lexicographically smallest observed value for determinism
         for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().iterator().next();
+            String value = e.getValue().counts().keySet().stream()
+                    .min(Comparator.naturalOrder()).orElse("");
             sb.append(" ").append(qNameToString(e.getKey()))
               .append("=\"").append(escape(value)).append("\"");
         }
@@ -101,8 +102,11 @@ public class TemplateRenderer {
             if (directiveOpt.isPresent()) {
                 sb.append("_");
             } else {
-                String firstValue = node.valueSamples().distinct().iterator().next();
-                sb.append(escape(firstValue));
+                // Pick the lexicographically-smallest observed value for deterministic output
+                String literalValue = node.valueSamples().distinct().stream()
+                        .min(Comparator.naturalOrder())
+                        .orElse("");
+                sb.append(escape(literalValue));
             }
         }
 
@@ -122,7 +126,8 @@ public class TemplateRenderer {
             sb.append(" xmlns:gen=\"urn:xml:gen\"");
         }
         for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().iterator().next();
+            String value = e.getValue().counts().keySet().stream()
+                    .min(Comparator.naturalOrder()).orElse("");
             sb.append(" ").append(qNameToString(e.getKey()))
               .append("=\"").append(escape(value)).append("\"");
         }
@@ -164,7 +169,8 @@ public class TemplateRenderer {
             sb.append(" xmlns:gen=\"urn:xml:gen\"");
         }
         for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().iterator().next();
+            String value = e.getValue().counts().keySet().stream()
+                    .min(Comparator.naturalOrder()).orElse("");
             sb.append(" ").append(qNameToString(e.getKey()))
               .append("=\"").append(escape(value)).append("\"");
         }
