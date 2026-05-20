@@ -30,6 +30,10 @@ public final class Pool {
         return rows.size();
     }
 
+    public List<Map<String, String>> rows() {
+        return rows;
+    }
+
     /** Advance the cursor and return the previous index (the row to use now). */
     int nextRow() {
         int row = cursor;
