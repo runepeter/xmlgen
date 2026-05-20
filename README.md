@@ -16,11 +16,13 @@ The generator namespace is `urn:xml:gen` (conventional prefix: `gen`).
 | Attribute | Effect |
 | --- | --- |
 | `gen:repeat="N"` | Repeat the element (and its subtree) `N` times. Nesting multiplies. |
+| `gen:repeat="min..max"` | Repeat the element a random number of times in `[min, max]` per expansion. Uses the same seeded `Random` as the other random-* directives. |
 | `gen:increment="N"` | Treat the element's text content as an integer and add `N` to it. Inside a `repeat`, the value accumulates per iteration. |
 | `gen:pick="pool/column"` | Replace the element's text with a value from a named pool. Multiple picks against the same pool inside one `gen:repeat` iteration share a row (coherent records). |
 | `gen:random-int="min..max"` | Replace the element's text with a random integer in `[min, max]` (inclusive). |
 | `gen:random-amount="min..max"` | Replace the element's text with a random decimal in `[min, max]`. Output keeps the maximum scale of `min` and `max` (e.g. `0.00..1000.00` always yields two decimals). |
 | `gen:random-date="YYYY-MM-DD..YYYY-MM-DD"` | Replace the element's text with a random ISO date in the closed range. |
+| `gen:random-uuid="true"` | Replace the element's text with a Type-4 UUID. Uses the seeded `Random` for reproducibility. |
 
 Plus two **elements** in the same namespace:
 
