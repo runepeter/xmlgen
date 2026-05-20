@@ -71,16 +71,23 @@ class _XMLEvent implements StartElement {
         if (sep < 0) {
             return Integer.parseInt(value);
         }
-        int min = Integer.parseInt(value.substring(0, sep).trim());
-        int max = Integer.parseInt(value.substring(sep + 2).trim());
+        if (sep == 0 || sep >= value.length() - 2) {
+            throw new IllegalArgumentException(
+                    "gen:repeat value must be 'min..max', got '" + value + "'");
+        }
+        int min, max;
+        try {
+            min = Integer.parseInt(value.substring(0, sep).trim());
+            max = Integer.parseInt(value.substring(sep + 2).trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "gen:repeat value must be 'min..max', got '" + value + "'", e);
+        }
         if (min > max) {
             throw new IllegalArgumentException(
                     "gen:repeat min must be <= max, got '" + value + "'");
         }
-        if (min == max) {
-            return min;
-        }
-        return min + random.nextInt(max - min + 1);
+        return min == max ? min : min + random.nextInt(max - min + 1);
     }
 
     public QName getName() {
