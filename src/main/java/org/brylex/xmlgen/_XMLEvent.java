@@ -21,8 +21,8 @@ class _XMLEvent implements StartElement {
 
     private final Map<QName, Attribute> attributes = new HashMap<QName, Attribute>();
     private final AtomicBoolean template = new AtomicBoolean(false);
-    public static final QName REPEAT = new QName("urn:xml:gen", "repeat");
-    public static final QName INCREMENT = new QName("urn:xml:gen", "increment");
+    public static final QName REPEAT = new QName(GenNs.URI, "repeat");
+    public static final QName INCREMENT = new QName(GenNs.URI, "increment");
     private int increment;
     private final Random random;
 
@@ -33,7 +33,7 @@ class _XMLEvent implements StartElement {
             Attribute attribute = it.next();
             QName qName = attribute.getName();
 
-            if ("urn:xml:gen".equals(qName.getNamespaceURI())) {
+            if (GenNs.URI.equals(qName.getNamespaceURI())) {
 
                 if (REPEAT.equals(qName)) {
                     int resolved = resolveRepeat(attribute.getValue());
@@ -67,18 +67,14 @@ class _XMLEvent implements StartElement {
     }
 
     private int resolveRepeat(String value) {
-        int sep = value.indexOf("..");
-        if (sep < 0) {
-            return Integer.parseInt(value);
+        if (value.indexOf("..") < 0) {
+            return Integer.parseInt(value);  // fixed-int form
         }
-        if (sep == 0 || sep >= value.length() - 2) {
-            throw new IllegalArgumentException(
-                    "gen:repeat value must be 'min..max', got '" + value + "'");
-        }
+        String[] parts = RangeBounds.parse(value, "gen:repeat");
         int min, max;
         try {
-            min = Integer.parseInt(value.substring(0, sep).trim());
-            max = Integer.parseInt(value.substring(sep + 2).trim());
+            min = Integer.parseInt(parts[0]);
+            max = Integer.parseInt(parts[1]);
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException(
                     "gen:repeat value must be 'min..max', got '" + value + "'", e);

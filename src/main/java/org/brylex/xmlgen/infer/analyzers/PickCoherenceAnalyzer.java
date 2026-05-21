@@ -180,9 +180,7 @@ public class PickCoherenceAnalyzer implements Analyzer {
         for (ContentItem ci : parent.orderedContent()) {
             if (!(ci instanceof ContentItem.ChildSlot cs)) continue;
             ShapeNode child = cs.node();
-            boolean isLeaf = child.orderedContent().stream()
-                    .noneMatch(c -> c instanceof ContentItem.ChildSlot);
-            if (!isLeaf) continue;
+            if (!child.isLeaf()) continue;
             if (child.directive().isPresent()) continue;
             if (!child.valueSamples().isEmpty()) {
                 result.add(child);
@@ -210,9 +208,7 @@ public class PickCoherenceAnalyzer implements Analyzer {
             }
             ShapeNode child = cs.node();
             // Must be a leaf (no child slots)
-            boolean isLeaf = child.orderedContent().stream()
-                    .noneMatch(c -> c instanceof ContentItem.ChildSlot);
-            if (!isLeaf) {
+            if (!child.isLeaf()) {
                 continue;
             }
             // Must have no directive

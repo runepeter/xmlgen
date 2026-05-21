@@ -59,7 +59,7 @@ public class AnalysisContext {
      * all parent-instances. Each {@link Signature} is the ordered (qName, cardinality-bucket)
      * sequence seen inside one parent-instance occurrence.
      *
-     * <p>Populated by ShapeBuilder (wired in Task 20). Unit tests supply data directly via
+     * <p>Populated by ShapeBuilder. Unit tests supply data directly via
      * the four-arg constructor.
      */
     public List<Signature> signaturesAt(String xpath) {
@@ -71,7 +71,7 @@ public class AnalysisContext {
      * all parent-instance occurrences. Each {@link Map} maps leaf-local-name → observed-value
      * for one parent-instance observation.
      *
-     * <p>Populated by ShapeBuilder (wired in Task 20). Unit tests supply data directly via
+     * <p>Populated by ShapeBuilder. Unit tests supply data directly via
      * the five-arg constructor.
      */
     public List<Map<String, String>> rowsAt(String parentXpath) {

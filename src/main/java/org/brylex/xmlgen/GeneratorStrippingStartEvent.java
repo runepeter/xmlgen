@@ -19,7 +19,7 @@ class GeneratorStrippingStartEvent implements StartElement {
     private final Map<String, Namespace> namespaces = new HashMap<String, Namespace>();
 
     private final AtomicBoolean template = new AtomicBoolean(false);
-    public static final QName REPEAT = new QName("urn:xml:gen", "repeat");
+    public static final QName REPEAT = new QName(GenNs.URI, "repeat");
 
     public GeneratorStrippingStartEvent(final StartElement delegate) {
         this.delegate = delegate;
@@ -28,7 +28,7 @@ class GeneratorStrippingStartEvent implements StartElement {
             Attribute attribute = it.next();
             QName qName = attribute.getName();
 
-            if (!"urn:xml:gen".equals(qName.getNamespaceURI())) {
+            if (!GenNs.URI.equals(qName.getNamespaceURI())) {
                 attributes.put(qName, attribute);
             }
         }
@@ -37,7 +37,7 @@ class GeneratorStrippingStartEvent implements StartElement {
             Namespace namespace = it.next();
             String uri = namespace.getNamespaceURI();
 
-            if (!"urn:xml:gen".equals(uri)) {
+            if (!GenNs.URI.equals(uri)) {
                 namespaces.put(namespace.getPrefix(), namespace);
             }
         }

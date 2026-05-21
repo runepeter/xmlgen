@@ -1,5 +1,7 @@
 package org.brylex.xmlgen.infer;
 
+import org.brylex.xmlgen.GenNs;
+
 import javax.xml.namespace.QName;
 import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
@@ -20,7 +22,7 @@ import java.util.*;
  */
 public class ShapeBuilder {
 
-    private static final String GEN_NS = "urn:xml:gen";
+    private static final String GEN_NS = GenNs.URI;
 
     private final InferenceConfig config;
     private final List<ShapeNode> sampleRoots = new ArrayList<>();
@@ -126,20 +128,15 @@ public class ShapeBuilder {
         for (int i = 1; i < roots.size(); i++) {
             Map<String, Boolean> currentFlags = new LinkedHashMap<>();
             collectMixedContentFlags(roots.get(i), currentFlags);
+            // Check all xpaths present in the reference: if the current sample also has the
+            // xpath, the mixed-content flag must agree. The reverse direction is redundant
+            // because any xpath in current that also exists in reference will be covered
+            // by the reference-keyed iteration here.
             for (Map.Entry<String, Boolean> ref : referenceFlags.entrySet()) {
                 Boolean current = currentFlags.get(ref.getKey());
                 if (current != null && !current.equals(ref.getValue())) {
                     throw new InferenceException(
                             "mixed-content divergence at " + ref.getKey()
-                                    + ": samples disagree on whether content is mixed");
-                }
-            }
-            // Also check xpaths in current that exist in reference
-            for (Map.Entry<String, Boolean> cur : currentFlags.entrySet()) {
-                Boolean ref = referenceFlags.get(cur.getKey());
-                if (ref != null && !ref.equals(cur.getValue())) {
-                    throw new InferenceException(
-                            "mixed-content divergence at " + cur.getKey()
                                     + ": samples disagree on whether content is mixed");
                 }
             }
@@ -157,7 +154,7 @@ public class ShapeBuilder {
 
     /**
      * Returns warnings accumulated during {@link #build()} — e.g. ambiguous child ordering.
-     * Will be consumed by AnalysisContext in Task 12+.
+     * Consumed by AnalysisContext.
      */
     public List<InferenceWarning> warnings() {
         return List.copyOf(warnings);
@@ -323,7 +320,7 @@ public class ShapeBuilder {
             } else if (event.isEndElement()) {
                 ShapeNode finishing = nodeStack.pop();
                 Map<QName, Integer> childCounts = childCountStack.pop();
-                childSlotStack.pop();
+                Map<QName, ShapeNode> childMap = childSlotStack.pop();
                 List<QName> childOrder = childOrderStack.pop();
                 ElementState state = stateStack.pop();
                 ParentInstanceObservation obs = observationStack.pop();
@@ -340,14 +337,11 @@ public class ShapeBuilder {
                             .add(List.copyOf(childOrder));
                 }
 
-                // Record how many times each child qName appeared under this instance
+                // Record how many times each child qName appeared under this instance.
+                // Use the cached childMap (same data that was built during StartElement processing)
+                // instead of stream-scanning orderedContent.
                 for (Map.Entry<QName, Integer> entry : childCounts.entrySet()) {
-                    ShapeNode childNode = finishing.orderedContent().stream()
-                            .filter(ci -> ci instanceof ContentItem.ChildSlot cs
-                                    && cs.node().qName().equals(entry.getKey()))
-                            .map(ci -> ((ContentItem.ChildSlot) ci).node())
-                            .findFirst()
-                            .orElse(null);
+                    ShapeNode childNode = childMap.get(entry.getKey());
                     if (childNode != null) {
                         childNode.cardinalityPerParent().accept(entry.getValue());
                     }

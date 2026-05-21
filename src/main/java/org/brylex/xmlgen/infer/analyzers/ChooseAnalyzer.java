@@ -29,17 +29,16 @@ import java.util.Set;
  *       {@link InferenceWarning.DroppedRareSignature}.</li>
  *   <li>After dropping: one remaining signature → no-op.</li>
  *   <li>Check for subset-chain (all smaller sigs are strict subsets of the largest).
- *       If yes, emit a standard {@link Directive.Choose} (v1 simplification — renderer
- *       refines this in Task 19).</li>
+ *       If yes, emit a standard {@link Directive.Choose} (the renderer refines how this
+ *       renders in the optional-element case).</li>
  *   <li>Otherwise emit a {@link Directive.Choose} with one branch per signature,
  *       weight = observation count.</li>
  *   <li>If branches exceed {@code chooseMaxBranches}, cap at max, emit
  *       {@link InferenceWarning.ChooseBranchOverflow}, keep top-N by count.</li>
  * </ol>
  *
- * <p>Integration note: {@link AnalysisContext#signaturesAt(String)} is populated by ShapeBuilder
- * (wired in Task 20). Unit tests supply data directly via the four-arg
- * {@link AnalysisContext} constructor.
+ * <p>Integration note: {@link AnalysisContext#signaturesAt(String)} is populated by ShapeBuilder.
+ * Unit tests supply data directly via the four-arg {@link AnalysisContext} constructor.
  */
 public class ChooseAnalyzer implements Analyzer {
 
@@ -114,13 +113,7 @@ public class ChooseAnalyzer implements Analyzer {
         }
 
         // Mutually distinct signatures — emit Choose at parent level
-        if (groupedKept.size() > ctx.config().chooseMaxBranches()) {
-            ctx.warn(new InferenceWarning.ChooseBranchOverflow(
-                    parent.xpath(), groupedKept.size(), ctx.config().chooseMaxBranches()));
-            // Keep top-N by count, stable order (most frequent first)
-            groupedKept.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
-            groupedKept = groupedKept.subList(0, ctx.config().chooseMaxBranches());
-        }
+        groupedKept = capBranches(groupedKept, parent, ctx);
 
         List<Directive.Branch> branches = new ArrayList<>();
         for (Map.Entry<Signature, Integer> e : groupedKept) {
@@ -168,22 +161,31 @@ public class ChooseAnalyzer implements Analyzer {
     }
 
     /**
-     * Handles subset-chain: v1 emits a standard {@link Directive.Choose} (one branch per
-     * distinct signature group). The renderer (Task 19) refines how this renders in the
+     * Caps branch list to {@code chooseMaxBranches}, emitting a warning if truncation
+     * occurs and returning the top-N entries by count (most frequent first).
+     */
+    private List<Map.Entry<Signature, Integer>> capBranches(
+            List<Map.Entry<Signature, Integer>> kept, ShapeNode parent, AnalysisContext ctx) {
+        if (kept.size() > ctx.config().chooseMaxBranches()) {
+            ctx.warn(new InferenceWarning.ChooseBranchOverflow(
+                    parent.xpath(), kept.size(), ctx.config().chooseMaxBranches()));
+            kept = new ArrayList<>(kept);
+            kept.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+            kept = kept.subList(0, ctx.config().chooseMaxBranches());
+        }
+        return kept;
+    }
+
+    /**
+     * Handles subset-chain: emits a standard {@link Directive.Choose} (one branch per
+     * distinct signature group). The renderer refines how this renders in the
      * optional-element case; at this stage the structure is correct and warnings/weights
      * are meaningful.
      */
     private void applySubsetChainChoose(ShapeNode parent,
                                         List<Map.Entry<Signature, Integer>> kept,
                                         AnalysisContext ctx) {
-        // Cap branches if needed
-        if (kept.size() > ctx.config().chooseMaxBranches()) {
-            ctx.warn(new InferenceWarning.ChooseBranchOverflow(
-                    parent.xpath(), kept.size(), ctx.config().chooseMaxBranches()));
-            List<Map.Entry<Signature, Integer>> mutable = new ArrayList<>(kept);
-            mutable.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
-            kept = mutable.subList(0, ctx.config().chooseMaxBranches());
-        }
+        kept = capBranches(kept, parent, ctx);
 
         List<Directive.Branch> branches = new ArrayList<>();
         for (Map.Entry<Signature, Integer> e : kept) {

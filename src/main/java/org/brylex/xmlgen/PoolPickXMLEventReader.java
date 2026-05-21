@@ -13,8 +13,8 @@ import java.util.Map;
 
 class PoolPickXMLEventReader implements XMLEventReader {
 
-    static final QName PICK = new QName("urn:xml:gen", "pick");
-    static final QName REPEAT = new QName("urn:xml:gen", "repeat");
+    static final QName PICK = new QName(GenNs.URI, "pick");
+    static final QName REPEAT = new QName(GenNs.URI, "repeat");
 
     private final XMLEventReader delegate;
     private final Pools pools;

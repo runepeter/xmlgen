@@ -15,10 +15,10 @@ import java.util.UUID;
 
 class RandomXMLEventReader implements XMLEventReader {
 
-    static final QName RANDOM_UUID = new QName("urn:xml:gen", "random-uuid");
-    static final QName RANDOM_INT = new QName("urn:xml:gen", "random-int");
-    static final QName RANDOM_AMOUNT = new QName("urn:xml:gen", "random-amount");
-    static final QName RANDOM_DATE = new QName("urn:xml:gen", "random-date");
+    static final QName RANDOM_UUID = new QName(GenNs.URI, "random-uuid");
+    static final QName RANDOM_INT = new QName(GenNs.URI, "random-int");
+    static final QName RANDOM_AMOUNT = new QName(GenNs.URI, "random-amount");
+    static final QName RANDOM_DATE = new QName(GenNs.URI, "random-date");
 
     private final XMLEventReader delegate;
     private final Random random;
@@ -112,12 +112,7 @@ class RandomXMLEventReader implements XMLEventReader {
     }
 
     private static String[] parseBounds(String spec, String directive) {
-        int sep = spec.indexOf("..");
-        if (sep <= 0 || sep >= spec.length() - 2) {
-            throw new IllegalArgumentException(
-                    directive + " value must be 'min..max', got '" + spec + "'");
-        }
-        return new String[]{spec.substring(0, sep).trim(), spec.substring(sep + 2).trim()};
+        return RangeBounds.parse(spec, directive);
     }
 
     private static void requireOrdered(boolean ok, String directive, String spec) {

@@ -25,8 +25,8 @@ import java.util.List;
  * is already set on the relevant parent nodes.
  *
  * <p>Integration note: {@link AnalysisContext#iterationValuesAt(String)} is populated
- * by {@code ShapeBuilder} iteration-value capture, wired up in Task 20. Unit tests
- * supply the sequences directly via the three-arg {@code AnalysisContext} constructor.
+ * by {@code ShapeBuilder} iteration-value capture. Unit tests supply the sequences
+ * directly via the three-arg {@code AnalysisContext} constructor.
  */
 public class IncrementAnalyzer implements Analyzer {
 
@@ -41,8 +41,7 @@ public class IncrementAnalyzer implements Analyzer {
             enteringRepeat = true;
         }
 
-        boolean isLeaf = node.orderedContent().stream()
-                .noneMatch(ci -> ci instanceof ContentItem.ChildSlot);
+        boolean isLeaf = node.isLeaf();
 
         if (isLeaf && underRepeat && node.directive().isEmpty()) {
             tryIncrement(node, ctx);

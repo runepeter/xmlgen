@@ -1,5 +1,6 @@
 package org.brylex.xmlgen.infer;
 
+import org.brylex.xmlgen.GenNs;
 import org.brylex.xmlgen.Pools;
 
 import javax.xml.namespace.QName;
@@ -19,16 +20,20 @@ public class TemplateRenderer {
     public Result render(ShapeNode root) {
         StringBuilder sb = new StringBuilder();
         Map<String, List<Map<String, String>>> pendingPoolRows = new LinkedHashMap<>();
+        // Pools whose rows came pre-sorted from PickCoherenceAnalyzer — skip redundant re-sort.
+        Set<String> preSortedPools = new HashSet<>();
 
-        renderNode(root, sb, 0, true, pendingPoolRows);
+        renderNode(root, sb, 0, true, pendingPoolRows, preSortedPools);
 
         Pools.Builder poolsBuilder = Pools.builder();
         for (Map.Entry<String, List<Map<String, String>>> e : pendingPoolRows.entrySet()) {
             List<Map<String, String>> rows = new ArrayList<>(e.getValue());
-            rows.sort(Comparator.comparing(m -> {
-                Iterator<String> it = m.values().iterator();
-                return it.hasNext() ? it.next() : "";
-            }));
+            if (!preSortedPools.contains(e.getKey())) {
+                rows.sort(Comparator.comparing(m -> {
+                    Iterator<String> it = m.values().iterator();
+                    return it.hasNext() ? it.next() : "";
+                }));
+            }
             poolsBuilder.inline(e.getKey(), rows);
         }
 
@@ -36,11 +41,12 @@ public class TemplateRenderer {
     }
 
     private void renderNode(ShapeNode node, StringBuilder sb, int indent, boolean isRoot,
-                            Map<String, List<Map<String, String>>> pendingPoolRows) {
+                            Map<String, List<Map<String, String>>> pendingPoolRows,
+                            Set<String> preSortedPools) {
 
         // Mixed-content path: emit content in document order without pretty-print re-indenting
         if (node.hasMixedContent()) {
-            renderMixedContent(node, sb, indent, isRoot, pendingPoolRows);
+            renderMixedContent(node, sb, indent, isRoot, pendingPoolRows, preSortedPools);
             return;
         }
 
@@ -48,7 +54,7 @@ public class TemplateRenderer {
 
         // Choose directive: render as <gen:choose> wrapper, not an attribute
         if (directiveOpt.isPresent() && directiveOpt.get() instanceof Directive.Choose choose) {
-            renderChoose(node, choose, sb, indent, isRoot, pendingPoolRows);
+            renderChoose(node, choose, sb, indent, isRoot, pendingPoolRows, preSortedPools);
             return;
         }
 
@@ -63,22 +69,10 @@ public class TemplateRenderer {
         }
 
         indent(sb, indent);
-        sb.append("<").append(qNameToString(node.qName()));
-
-        if (isRoot) {
-            sb.append(" xmlns:gen=\"urn:xml:gen\"");
-        }
-
-        // Plain attributes — lexicographically smallest observed value for determinism
-        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().stream()
-                    .min(Comparator.naturalOrder()).orElse("");
-            sb.append(" ").append(qNameToString(e.getKey()))
-              .append("=\"").append(escape(value)).append("\"");
-        }
+        appendOpenTag(sb, node, isRoot);
 
         // Directive as XML attribute
-        directiveOpt.ifPresent(d -> writeDirective(sb, d, node, pendingPoolRows));
+        directiveOpt.ifPresent(d -> writeDirective(sb, d, node, pendingPoolRows, preSortedPools));
 
         boolean hasChildren = node.orderedContent().stream()
                 .anyMatch(ci -> ci instanceof ContentItem.ChildSlot);
@@ -94,7 +88,7 @@ public class TemplateRenderer {
         if (hasChildren) {
             sb.append("\n");
             for (ContentItem ci : node.orderedContent()) {
-                renderContentItem(ci, sb, indent + 2, pendingPoolRows);
+                renderContentItem(ci, sb, indent + 2, pendingPoolRows, preSortedPools);
             }
             indent(sb, indent);
         } else {
@@ -119,18 +113,10 @@ public class TemplateRenderer {
      * original inline layout.
      */
     private void renderMixedContent(ShapeNode node, StringBuilder sb, int indent, boolean isRoot,
-                                    Map<String, List<Map<String, String>>> pendingPoolRows) {
+                                    Map<String, List<Map<String, String>>> pendingPoolRows,
+                                    Set<String> preSortedPools) {
         indent(sb, indent);
-        sb.append("<").append(qNameToString(node.qName()));
-        if (isRoot) {
-            sb.append(" xmlns:gen=\"urn:xml:gen\"");
-        }
-        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().stream()
-                    .min(Comparator.naturalOrder()).orElse("");
-            sb.append(" ").append(qNameToString(e.getKey()))
-              .append("=\"").append(escape(value)).append("\"");
-        }
+        appendOpenTag(sb, node, isRoot);
         sb.append(">");
 
         for (ContentItem ci : node.orderedContent()) {
@@ -139,7 +125,7 @@ public class TemplateRenderer {
                 case ContentItem.ChildSlot cs -> {
                     // Inline child: render at indent 0, then strip trailing newline
                     StringBuilder childSb = new StringBuilder();
-                    renderNode(cs.node(), childSb, 0, false, pendingPoolRows);
+                    renderNode(cs.node(), childSb, 0, false, pendingPoolRows, preSortedPools);
                     String childStr = childSb.toString();
                     if (childStr.endsWith("\n")) {
                         childStr = childStr.substring(0, childStr.length() - 1);
@@ -162,18 +148,10 @@ public class TemplateRenderer {
      */
     private void renderChoose(ShapeNode node, Directive.Choose choose, StringBuilder sb,
                                int indent, boolean isRoot,
-                               Map<String, List<Map<String, String>>> pendingPoolRows) {
+                               Map<String, List<Map<String, String>>> pendingPoolRows,
+                               Set<String> preSortedPools) {
         indent(sb, indent);
-        sb.append("<").append(qNameToString(node.qName()));
-        if (isRoot) {
-            sb.append(" xmlns:gen=\"urn:xml:gen\"");
-        }
-        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
-            String value = e.getValue().counts().keySet().stream()
-                    .min(Comparator.naturalOrder()).orElse("");
-            sb.append(" ").append(qNameToString(e.getKey()))
-              .append("=\"").append(escape(value)).append("\"");
-        }
+        appendOpenTag(sb, node, isRoot);
         sb.append(">\n");
 
         indent(sb, indent + 2);
@@ -183,7 +161,7 @@ public class TemplateRenderer {
             indent(sb, indent + 4);
             sb.append("<gen:when weight=\"").append(branch.weight()).append("\">\n");
             for (ContentItem ci : branch.body()) {
-                renderContentItem(ci, sb, indent + 6, pendingPoolRows);
+                renderContentItem(ci, sb, indent + 6, pendingPoolRows, preSortedPools);
             }
             indent(sb, indent + 4);
             sb.append("</gen:when>\n");
@@ -197,9 +175,10 @@ public class TemplateRenderer {
     }
 
     private void renderContentItem(ContentItem ci, StringBuilder sb, int indent,
-                                   Map<String, List<Map<String, String>>> pendingPoolRows) {
+                                   Map<String, List<Map<String, String>>> pendingPoolRows,
+                                   Set<String> preSortedPools) {
         switch (ci) {
-            case ContentItem.ChildSlot cs -> renderNode(cs.node(), sb, indent, false, pendingPoolRows);
+            case ContentItem.ChildSlot cs -> renderNode(cs.node(), sb, indent, false, pendingPoolRows, preSortedPools);
             case ContentItem.Text t -> { indent(sb, indent); sb.append(escape(t.value())).append("\n"); }
             case ContentItem.Cdata cdata -> {
                 indent(sb, indent);
@@ -216,8 +195,25 @@ public class TemplateRenderer {
         }
     }
 
+    /**
+     * Appends {@code <qName [xmlns:gen="..."] [attrs]>} to {@code sb}, without the
+     * closing {@code >} so callers can append additional content (directive attrs, body
+     * opener) before closing.
+     */
+    private void appendOpenTag(StringBuilder sb, ShapeNode node, boolean isRoot) {
+        sb.append("<").append(qNameToString(node.qName()));
+        if (isRoot) sb.append(" ").append(GenNs.XMLNS_DECL);
+        for (Map.Entry<QName, ShapeNode.ValueSamples> e : node.attributes().entrySet()) {
+            String value = e.getValue().counts().keySet().stream()
+                    .min(Comparator.naturalOrder()).orElse("");
+            sb.append(" ").append(qNameToString(e.getKey()))
+              .append("=\"").append(escape(value)).append("\"");
+        }
+    }
+
     private void writeDirective(StringBuilder sb, Directive d, ShapeNode node,
-                                Map<String, List<Map<String, String>>> pendingPoolRows) {
+                                Map<String, List<Map<String, String>>> pendingPoolRows,
+                                Set<String> preSortedPools) {
         switch (d) {
             case Directive.Repeat r -> {
                 if (r.isFixed()) {
@@ -231,9 +227,10 @@ public class TemplateRenderer {
             case Directive.Pick p -> {
                 sb.append(" gen:pick=\"").append(p.poolName()).append("/").append(p.column()).append("\"");
                 if (p.poolRows() != null) {
-                    // Combined multi-column rows provided by PickCoherenceAnalyzer — register
-                    // the full pool once (from the first leaf in the bijective group).
+                    // Combined multi-column rows provided by PickCoherenceAnalyzer — already
+                    // sorted lexicographically; register and mark as pre-sorted.
                     pendingPoolRows.put(p.poolName(), new ArrayList<>(p.poolRows()));
+                    preSortedPools.add(p.poolName());
                 } else if (!pendingPoolRows.containsKey(p.poolName())) {
                     // No combined rows and pool not yet registered — fall back to single-column
                     // rows derived from the leaf's own value samples (legacy / unit-test path).

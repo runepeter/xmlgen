@@ -31,6 +31,10 @@ public final class ShapeNode {
 
     public Optional<Directive> directive() { return Optional.ofNullable(directive); }
 
+    public boolean isLeaf() {
+        return orderedContent.stream().noneMatch(ci -> ci instanceof ContentItem.ChildSlot);
+    }
+
     public void setDirective(Directive directive) {
         if (this.directive != null) {
             throw new IllegalStateException(
