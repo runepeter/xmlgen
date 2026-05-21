@@ -5,7 +5,7 @@
 
     <groupId>org.brylex</groupId>
     <artifactId>xmlgen</artifactId>
-    <version>0.4</version>
+    <version>0.5-SNAPSHOT</version>
 
     <name>XmlGen</name>
     <description>Generate XML test data from annotated XML templates using a StAX decorator.</description>
@@ -28,7 +28,7 @@
         <connection>scm:git:git://github.com/runepeter/xmlgen.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/runepeter/xmlgen.git</developerConnection>
         <url>https://github.com/runepeter/xmlgen</url>
-        <tag>xmlgen-0.4</tag>
+        <tag>HEAD</tag>
     </scm>
 
     <developers>
@@ -45,7 +45,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <project.build.outputTimestamp>2026-05-21T10:51:19Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-05-21T10:51:27Z</project.build.outputTimestamp>
 
         <java.version>21</java.version>
         <maven.compiler.release>${java.version}</maven.compiler.release>
