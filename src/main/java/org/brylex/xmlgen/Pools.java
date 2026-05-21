@@ -48,6 +48,10 @@ public final class Pools {
         return pool;
     }
 
+    public java.util.Set<String> poolNames() {
+        return pools.keySet();
+    }
+
     public static final class Builder {
 
         private final Map<String, Pool> pools = new LinkedHashMap<>();

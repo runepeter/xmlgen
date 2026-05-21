@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice>
+  <header>
+    <number>10004</number>
+    <issued>2024-09-05</issued>
+    <customer>
+      <name>Delta Services BV</name>
+      <orgnr>945678901</orgnr>
+    </customer>
+  </header>
+  <line>
+    <sku>SKU-004</sku>
+    <qty>15</qty>
+    <price>10.00</price>
+  </line>
+  <line>
+    <sku>SKU-006</sku>
+    <qty>8</qty>
+    <price>450.00</price>
+  </line>
+  <line>
+    <sku>SKU-008</sku>
+    <qty>4</qty>
+    <price>325.75</price>
+  </line>
+  <line>
+    <sku>SKU-010</sku>
+    <qty>11</qty>
+    <price>88.20</price>
+  </line>
+</invoice>

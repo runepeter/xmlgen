@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<event>
+  <kind>purchase</kind>
+  <status>fail</status>
+  <country>dk</country>
+  <count>3</count>
+</event>

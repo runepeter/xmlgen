@@ -1,0 +1,15 @@
+<invoice xmlns:gen="urn:xml:gen">
+  <header>
+    <number gen:random-int="10001..10005">_</number>
+    <issued gen:random-date="2024-01-15..2024-12-18">_</issued>
+    <customer>
+      <name>Acme Corp</name>
+      <orgnr gen:random-int="912345678..956789012">_</orgnr>
+    </customer>
+  </header>
+  <line gen:repeat="2..4">
+    <sku>SKU-001</sku>
+    <qty gen:random-int="1..15">_</qty>
+    <price gen:random-amount="10.00..999.95">_</price>
+  </line>
+</invoice>

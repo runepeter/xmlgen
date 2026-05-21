@@ -12,6 +12,7 @@ import java.io.Writer;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 class _XMLEvent implements StartElement {
@@ -20,22 +21,28 @@ class _XMLEvent implements StartElement {
 
     private final Map<QName, Attribute> attributes = new HashMap<QName, Attribute>();
     private final AtomicBoolean template = new AtomicBoolean(false);
-    public static final QName REPEAT = new QName("urn:xml:gen", "repeat");
-    public static final QName INCREMENT = new QName("urn:xml:gen", "increment");
+    public static final QName REPEAT = new QName(GenNs.URI, "repeat");
+    public static final QName INCREMENT = new QName(GenNs.URI, "increment");
     private int increment;
+    private final Random random;
 
-    public _XMLEvent(final StartElement delegate) {
+    public _XMLEvent(final StartElement delegate, final Random random) {
+        this.random = random;
 
         for (Iterator<Attribute> it = delegate.getAttributes(); it.hasNext(); ) {
             Attribute attribute = it.next();
             QName qName = attribute.getName();
 
-            if ("urn:xml:gen".equals(qName.getNamespaceURI())) {
+            if (GenNs.URI.equals(qName.getNamespaceURI())) {
 
-                attributes.put(qName, attribute);
-
-                if (REPEAT.equals(qName) && Integer.parseInt(attribute.getValue()) > 1) {
-                    this.template.set(true);
+                if (REPEAT.equals(qName)) {
+                    int resolved = resolveRepeat(attribute.getValue());
+                    if (resolved > 1) {
+                        this.template.set(true);
+                    }
+                    attributes.put(qName, new _Attribute(attribute, Integer.toString(resolved)));
+                } else {
+                    attributes.put(qName, attribute);
                 }
 
                 if (INCREMENT.equals(qName)) {
@@ -57,6 +64,26 @@ class _XMLEvent implements StartElement {
             raw = inner.delegate;
         }
         this.delegate = raw;
+    }
+
+    private int resolveRepeat(String value) {
+        if (value.indexOf("..") < 0) {
+            return Integer.parseInt(value);  // fixed-int form
+        }
+        String[] parts = RangeBounds.parse(value, "gen:repeat");
+        int min, max;
+        try {
+            min = Integer.parseInt(parts[0]);
+            max = Integer.parseInt(parts[1]);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "gen:repeat value must be 'min..max', got '" + value + "'", e);
+        }
+        if (min > max) {
+            throw new IllegalArgumentException(
+                    "gen:repeat min must be <= max, got '" + value + "'");
+        }
+        return min == max ? min : min + random.nextInt(max - min + 1);
     }
 
     public QName getName() {

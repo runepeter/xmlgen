@@ -11,12 +11,14 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Random;
+import java.util.UUID;
 
 class RandomXMLEventReader implements XMLEventReader {
 
-    static final QName RANDOM_INT = new QName("urn:xml:gen", "random-int");
-    static final QName RANDOM_AMOUNT = new QName("urn:xml:gen", "random-amount");
-    static final QName RANDOM_DATE = new QName("urn:xml:gen", "random-date");
+    static final QName RANDOM_UUID = new QName(GenNs.URI, "random-uuid");
+    static final QName RANDOM_INT = new QName(GenNs.URI, "random-int");
+    static final QName RANDOM_AMOUNT = new QName(GenNs.URI, "random-amount");
+    static final QName RANDOM_DATE = new QName(GenNs.URI, "random-date");
 
     private final XMLEventReader delegate;
     private final Random random;
@@ -45,7 +47,15 @@ class RandomXMLEventReader implements XMLEventReader {
     }
 
     private static Generator parseGenerator(StartElement se) {
-        Attribute attr = se.getAttributeByName(RANDOM_INT);
+        Attribute attr = se.getAttributeByName(RANDOM_UUID);
+        if (attr != null) {
+            if (!"true".equals(attr.getValue())) {
+                throw new IllegalArgumentException(
+                        "gen:random-uuid value must be 'true', got '" + attr.getValue() + "'");
+            }
+            return rng -> randomUuid(rng).toString();
+        }
+        attr = se.getAttributeByName(RANDOM_INT);
         if (attr != null) {
             return parseIntRange(attr.getValue());
         }
@@ -89,13 +99,20 @@ class RandomXMLEventReader implements XMLEventReader {
         return rng -> start.plusDays(rng.nextLong(days + 1)).toString();
     }
 
+    private static UUID randomUuid(Random rng) {
+        long msb = rng.nextLong();
+        long lsb = rng.nextLong();
+        // Set version to 4 (random) — bits 12-15 of msb
+        msb &= ~(0xFL << 12);
+        msb |= 0x4L << 12;
+        // Set variant to IETF (10xx) — top two bits of lsb
+        lsb &= ~(0xC000000000000000L);
+        lsb |= 0x8000000000000000L;
+        return new UUID(msb, lsb);
+    }
+
     private static String[] parseBounds(String spec, String directive) {
-        int sep = spec.indexOf("..");
-        if (sep <= 0 || sep >= spec.length() - 2) {
-            throw new IllegalArgumentException(
-                    directive + " value must be 'min..max', got '" + spec + "'");
-        }
-        return new String[]{spec.substring(0, sep).trim(), spec.substring(sep + 2).trim()};
+        return RangeBounds.parse(spec, directive);
     }
 
     private static void requireOrdered(boolean ok, String directive, String spec) {

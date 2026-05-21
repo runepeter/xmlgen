@@ -4,6 +4,7 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.events.Characters;
 import javax.xml.stream.events.XMLEvent;
+import java.util.Random;
 import java.util.Stack;
 
 class TextProcessingXMLEventReader implements XMLEventReader {
@@ -30,11 +31,13 @@ class TextProcessingXMLEventReader implements XMLEventReader {
     }
 
     private final XMLEventReader delegate;
+    private final Random random;
 
     private final Stack<TextProcessor> processorStack = new Stack<TextProcessor>();
 
-    TextProcessingXMLEventReader(final XMLEventReader delegate) {
+    TextProcessingXMLEventReader(final XMLEventReader delegate, final Random random) {
         this.delegate = delegate;
+        this.random = random;
     }
 
     @Override
@@ -47,7 +50,7 @@ class TextProcessingXMLEventReader implements XMLEventReader {
 
         } else {
 
-            StackEvent event = new StackEvent(raw);
+            StackEvent event = new StackEvent(raw, random);
             if (event.isTextProcessor()) {
                 processorStack.push(new IncrementTextProcessor(event.getIncrement()));
             }

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice>
+  <header>
+    <number>10001</number>
+    <issued>2024-01-15</issued>
+    <customer>
+      <name>Acme Corp</name>
+      <orgnr>912345678</orgnr>
+    </customer>
+  </header>
+  <line>
+    <sku>SKU-001</sku>
+    <qty>3</qty>
+    <price>149.90</price>
+  </line>
+  <line>
+    <sku>SKU-013</sku>
+    <qty>14</qty>
+    <price>39.95</price>
+  </line>
+</invoice>

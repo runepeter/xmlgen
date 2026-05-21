@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice>
+  <header>
+    <number>10005</number>
+    <issued>2024-12-18</issued>
+    <customer>
+      <name>Epsilon Group SA</name>
+      <orgnr>956789012</orgnr>
+    </customer>
+  </header>
+  <line>
+    <sku>SKU-011</sku>
+    <qty>6</qty>
+    <price>555.55</price>
+  </line>
+  <line>
+    <sku>SKU-012</sku>
+    <qty>9</qty>
+    <price>132.40</price>
+  </line>
+</invoice>

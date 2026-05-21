@@ -3,15 +3,16 @@ package org.brylex.xmlgen;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.XMLEvent;
 import java.util.Iterator;
+import java.util.Random;
 
 class StackEvent {
 
     private final XMLEvent event;
     private int increment;
 
-    StackEvent(final XMLEvent event) {
+    StackEvent(final XMLEvent event, final Random random) {
         if (event.isStartElement()) {
-            this.event = new _XMLEvent(event.asStartElement());
+            this.event = new _XMLEvent(event.asStartElement(), random);
         } else {
             this.event = event;
         }

@@ -16,11 +16,13 @@ The generator namespace is `urn:xml:gen` (conventional prefix: `gen`).
 | Attribute | Effect |
 | --- | --- |
 | `gen:repeat="N"` | Repeat the element (and its subtree) `N` times. Nesting multiplies. |
+| `gen:repeat="min..max"` | Repeat the element a random number of times in `[min, max]` per expansion. Uses the same seeded `Random` as the other random-* directives. |
 | `gen:increment="N"` | Treat the element's text content as an integer and add `N` to it. Inside a `repeat`, the value accumulates per iteration. |
 | `gen:pick="pool/column"` | Replace the element's text with a value from a named pool. Multiple picks against the same pool inside one `gen:repeat` iteration share a row (coherent records). |
 | `gen:random-int="min..max"` | Replace the element's text with a random integer in `[min, max]` (inclusive). |
 | `gen:random-amount="min..max"` | Replace the element's text with a random decimal in `[min, max]`. Output keeps the maximum scale of `min` and `max` (e.g. `0.00..1000.00` always yields two decimals). |
 | `gen:random-date="YYYY-MM-DD..YYYY-MM-DD"` | Replace the element's text with a random ISO date in the closed range. |
+| `gen:random-uuid="true"` | Replace the element's text with a Type-4 UUID. Uses the seeded `Random` for reproducibility. |
 
 Plus two **elements** in the same namespace:
 
@@ -105,10 +107,10 @@ Pass a seeded `Random` for reproducible runs:
 new GeneratingXMLEventReader(template, pools, new Random(42L));
 ```
 
-`gen:repeat` *inside* a `gen:when` branch is not supported in this
-release — the chosen branch's events bypass the main directive loop, so
-they don't trigger nested recordings. Keep `gen:repeat` outside the
-choose.
+`gen:repeat` works inside `gen:when` branches; each chosen branch
+runs through the same directive pipeline as top-level content, so
+nesting `gen:repeat` (or any other directive) inside a branch is fully
+supported.
 
 ## Example
 
@@ -132,6 +134,39 @@ Output:
     <line><seq>3</seq><sku>ABC-123</sku></line>
 </order>
 ```
+
+## Template Inference
+
+Don't have a template? Point `TemplateInferrer` at 5–50 real sample documents
+and it emits an annotated template plus `Pools`:
+
+```java
+List<XMLEventReader> samples = ...; // your real XML samples
+
+InferredTemplate inferred = TemplateInferrer.infer(samples);
+XMLEventReader reader = inferred.expand(new Random(42));
+// inferred.templateXml(), inferred.pools(), inferred.warnings() are all available
+```
+
+Heuristics applied to the merged shape across samples:
+- Repeating siblings become `gen:repeat="min..max"` (or `gen:repeat="N"` when fixed)
+- Numeric / decimal / ISO-date fields become `gen:random-*`
+- UUID-format fields become `gen:random-uuid="true"`
+- Low-cardinality coherent leaf groups (≥ 5 distinct bijective rows) become a shared `gen:pick` with an auto-generated pool
+- Alternating sibling sub-trees become `gen:choose` with weighted branches
+- Monotonically increasing integer sequences inside `gen:repeat` become `gen:increment="step"`
+
+The inferrer is fully deterministic: same samples → byte-identical template,
+regardless of input ordering. Tune via `InferenceConfig`:
+
+```java
+InferenceConfig cfg = new InferenceConfig(/* ... */, /* strictMode */ true);
+TemplateInferrer.infer(samples, cfg);
+```
+
+`strictMode=true` promotes every silent-degradation warning to
+`InferenceException`. For anonymization, transform the returned `Pools`
+before expansion — see `AnonymizationExampleTest` for a canonical pattern.
 
 ## Usage
 
@@ -177,7 +212,7 @@ For how to cut a release, see [RELEASING.md](RELEASING.md).
 
 ```
 src/main/java/org/brylex/xmlgen/
-    GeneratingXMLEventReader.java    # public entry point
+    GeneratingXMLEventReader.java    # public entry point for expansion
     StackXMLEventReader.java         # stack-backed lookahead/replay
     RecordingXMLEventReader.java     # records subtree for repeat
     DelegatingXMLEventReader.java    # routes between recorders
@@ -185,8 +220,19 @@ src/main/java/org/brylex/xmlgen/
     GeneratorStrippingStartEvent.java# strips gen:* attrs from output
     StackEvent.java, _XMLEvent.java, _Attribute.java
     OverriddenCharactersXMLEvent.java
-src/test/java/org/brylex/xmlgen/
-    GeneratingXMLEventReaderTest.java
+src/main/java/org/brylex/xmlgen/infer/
+    TemplateInferrer.java            # public entry point for inference
+    InferredTemplate.java            # record(xml, pools, warnings)
+    InferenceConfig.java, InferenceException.java, InferenceWarning.java
+    ShapeBuilder.java                # XML samples → ShapeNode tree
+    ShapeNode.java, ContentItem.java, Directive.java, Range.java, Signature.java
+    AnalyzerPipeline.java, AnalysisContext.java, Analyzer.java
+    analyzers/RepeatAnalyzer.java        # gen:repeat from sibling cardinality
+    analyzers/IncrementAnalyzer.java     # gen:increment from monotonic seqs
+    analyzers/RandomRangeAnalyzer.java   # gen:random-{int,amount,date,uuid}
+    analyzers/ChooseAnalyzer.java        # gen:choose from signature groups
+    analyzers/PickCoherenceAnalyzer.java # gen:pick from bijective leaves
+    TemplateRenderer.java            # ShapeNode tree → annotated XML + Pools
 ```
 
 For a tour aimed at AI assistants, see [CLAUDE.md](CLAUDE.md).
