@@ -8,6 +8,7 @@ import org.brylex.xmlgen.infer.InferenceWarning;
 import org.brylex.xmlgen.infer.ShapeNode;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -69,15 +70,27 @@ public class PickCoherenceAnalyzer implements Analyzer {
     }
 
     private void processParent(ShapeNode parent, ShapeNode repeatAncestor, AnalysisContext ctx) {
+        // Get per-parent-instance rows from context first — needed for both paths
+        List<Map<String, String>> rows = ctx.rowsAt(parent.xpath());
+
         // Collect leaf children with no directive and low cardinality
         List<ShapeNode> candidates = collectLowCardinalityCandidates(parent, ctx);
-        if (candidates.isEmpty()) {
-            return;
+
+        // If no low-cardinality candidates but rows exist and show value repetition
+        // (distinct tuples < total rows), promote ALL directive-free leaf children as candidates.
+        // This handles bijective pool data where distinct/total ratio is high per-leaf yet
+        // the same value-tuples repeat across parent-instances — a strong signal that
+        // these are foreign-key fields drawn from a shared pool rather than random strings.
+        // We require at least one repeated tuple (rows.size() > distinct-tuple-count) to
+        // avoid promoting genuinely unique fields that PickCoherence cannot help with.
+        if (candidates.isEmpty() && !rows.isEmpty()) {
+            long distinctTupleCount = rows.stream().map(m -> new ArrayList<>(m.values())).distinct().count();
+            if (distinctTupleCount < rows.size()) {
+                candidates = collectAllLeafCandidates(parent);
+            }
         }
 
-        // Get per-parent-instance rows from context
-        List<Map<String, String>> rows = ctx.rowsAt(parent.xpath());
-        if (rows.isEmpty()) {
+        if (candidates.isEmpty() || rows.isEmpty()) {
             return;
         }
 
@@ -134,18 +147,48 @@ public class PickCoherenceAnalyzer implements Analyzer {
             }
         }
 
-        // Sort distinct rows lexicographically on first column
-        List<List<String>> sortedRows = new ArrayList<>(distinctTuples);
-        sortedRows.sort((a, b) -> {
-            String va = a.isEmpty() ? "" : a.get(0);
-            String vb = b.isEmpty() ? "" : b.get(0);
-            return va.compareTo(vb);
-        });
-
-        // Emit Pick directives for each leaf in the group
-        for (ShapeNode leaf : candidates) {
-            leaf.setDirective(new Directive.Pick(poolName, leaf.qName().getLocalPart()));
+        // Build combined multi-column pool rows sorted lexicographically on first column.
+        // The row maps use leaf local-names as keys, so the renderer can register a single
+        // coherent pool entry instead of separate single-column rows per leaf.
+        List<Map<String, String>> combinedRows = new ArrayList<>();
+        for (List<String> tuple : distinctTuples) {
+            Map<String, String> row = new LinkedHashMap<>();
+            for (int i = 0; i < leafNames.size(); i++) {
+                row.put(leafNames.get(i), tuple.get(i));
+            }
+            combinedRows.add(row);
         }
+        combinedRows.sort(Comparator.comparing(m -> m.getOrDefault(leafNames.get(0), "")));
+
+        // Emit Pick directives. The first leaf carries the combined pool rows so the renderer
+        // can register a single multi-column pool. Subsequent leaves carry null (pool already
+        // registered by the first leaf).
+        for (int i = 0; i < candidates.size(); i++) {
+            ShapeNode leaf = candidates.get(i);
+            List<Map<String, String>> rowsForDirective = (i == 0) ? combinedRows : null;
+            leaf.setDirective(new Directive.Pick(poolName, leaf.qName().getLocalPart(), rowsForDirective));
+        }
+    }
+
+    /**
+     * Collects ALL directive-free leaf children of the given parent, regardless of cardinality.
+     * Used as a fallback when rows data is present but the ratio filter would exclude candidates
+     * (e.g. bijective foreign-key fields where each parent-instance picks a unique value).
+     */
+    private List<ShapeNode> collectAllLeafCandidates(ShapeNode parent) {
+        List<ShapeNode> result = new ArrayList<>();
+        for (ContentItem ci : parent.orderedContent()) {
+            if (!(ci instanceof ContentItem.ChildSlot cs)) continue;
+            ShapeNode child = cs.node();
+            boolean isLeaf = child.orderedContent().stream()
+                    .noneMatch(c -> c instanceof ContentItem.ChildSlot);
+            if (!isLeaf) continue;
+            if (child.directive().isPresent()) continue;
+            if (!child.valueSamples().isEmpty()) {
+                result.add(child);
+            }
+        }
+        return result;
     }
 
     /**

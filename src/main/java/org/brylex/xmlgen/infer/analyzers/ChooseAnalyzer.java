@@ -85,23 +85,45 @@ public class ChooseAnalyzer implements Analyzer {
             return; // Single signature after filtering — nothing to choose between
         }
 
-        // Detect subset-chain
-        if (isSubsetChain(kept)) {
-            applySubsetChainChoose(parent, kept, ctx);
+        // Project signatures to qName-presence-sets (bucket>=1 → present, 0 → absent).
+        // Group kept entries by presence-set and merge counts within each group.
+        // Signatures that differ only in cardinality bucket (e.g. [(line,1)] vs [(line,2)])
+        // must NOT trigger Choose — they represent the same structural variant.
+        Map<Set<QName>, Integer> presenceCounts = new LinkedHashMap<>();
+        Map<Set<QName>, Signature> presenceRepresentative = new LinkedHashMap<>();
+        for (Map.Entry<Signature, Integer> e : kept) {
+            Set<QName> presence = qNameSet(e.getKey());
+            presenceCounts.merge(presence, e.getValue(), Integer::sum);
+            presenceRepresentative.putIfAbsent(presence, e.getKey());
+        }
+
+        if (presenceCounts.size() <= 1) {
+            return; // All signatures have the same qName-presence-set — no structural variation
+        }
+
+        // Rebuild kept list in terms of distinct presence-groups
+        List<Map.Entry<Signature, Integer>> groupedKept = new ArrayList<>();
+        for (Map.Entry<Set<QName>, Integer> e : presenceCounts.entrySet()) {
+            groupedKept.add(Map.entry(presenceRepresentative.get(e.getKey()), e.getValue()));
+        }
+
+        // Detect subset-chain on the presence-group representatives
+        if (isSubsetChain(groupedKept)) {
+            applySubsetChainChoose(parent, groupedKept, ctx);
             return;
         }
 
         // Mutually distinct signatures — emit Choose at parent level
-        if (kept.size() > ctx.config().chooseMaxBranches()) {
+        if (groupedKept.size() > ctx.config().chooseMaxBranches()) {
             ctx.warn(new InferenceWarning.ChooseBranchOverflow(
-                    parent.xpath(), kept.size(), ctx.config().chooseMaxBranches()));
+                    parent.xpath(), groupedKept.size(), ctx.config().chooseMaxBranches()));
             // Keep top-N by count, stable order (most frequent first)
-            kept.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
-            kept = kept.subList(0, ctx.config().chooseMaxBranches());
+            groupedKept.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+            groupedKept = groupedKept.subList(0, ctx.config().chooseMaxBranches());
         }
 
         List<Directive.Branch> branches = new ArrayList<>();
-        for (Map.Entry<Signature, Integer> e : kept) {
+        for (Map.Entry<Signature, Integer> e : groupedKept) {
             List<ContentItem> body = e.getKey().bodyFor(parent);
             branches.add(new Directive.Branch(e.getValue(), body));
         }

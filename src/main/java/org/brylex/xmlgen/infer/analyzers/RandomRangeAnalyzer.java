@@ -80,7 +80,13 @@ public class RandomRangeAnalyzer implements Analyzer {
             return;
         } catch (DateTimeParseException ignored) {}
 
-        ctx.warn(new InferenceWarning.MixedTypeFallback(node.xpath(),
-                "could not parse all observed values as int/decimal/date/uuid"));
+        // Only warn when all observed values are unique (distinct == total) — a true
+        // high-cardinality unparseable string with no pooling path. When distinct < total
+        // some values repeat, indicating a discrete category that PickCoherenceAnalyzer
+        // can legitimately claim; stay silent to avoid spurious noise.
+        if (distinct == total) {
+            ctx.warn(new InferenceWarning.MixedTypeFallback(node.xpath(),
+                    "could not parse all observed values as int/decimal/date/uuid"));
+        }
     }
 }

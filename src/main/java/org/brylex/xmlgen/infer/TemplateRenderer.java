@@ -230,11 +230,20 @@ public class TemplateRenderer {
             case Directive.Random rnd -> writeRandom(sb, rnd.range());
             case Directive.Pick p -> {
                 sb.append(" gen:pick=\"").append(p.poolName()).append("/").append(p.column()).append("\"");
-                for (String v : node.valueSamples().distinct()) {
-                    Map<String, String> row = new LinkedHashMap<>();
-                    row.put(p.column(), v);
-                    pendingPoolRows.computeIfAbsent(p.poolName(), k -> new ArrayList<>()).add(row);
+                if (p.poolRows() != null) {
+                    // Combined multi-column rows provided by PickCoherenceAnalyzer — register
+                    // the full pool once (from the first leaf in the bijective group).
+                    pendingPoolRows.put(p.poolName(), new ArrayList<>(p.poolRows()));
+                } else if (!pendingPoolRows.containsKey(p.poolName())) {
+                    // No combined rows and pool not yet registered — fall back to single-column
+                    // rows derived from the leaf's own value samples (legacy / unit-test path).
+                    for (String v : node.valueSamples().distinct()) {
+                        Map<String, String> row = new LinkedHashMap<>();
+                        row.put(p.column(), v);
+                        pendingPoolRows.computeIfAbsent(p.poolName(), k -> new ArrayList<>()).add(row);
+                    }
                 }
+                // If pool already registered (subsequent leaves in a bijective group) — skip.
             }
             case Directive.Choose c -> throw new IllegalStateException(
                     "Choose directive should be dispatched before writeDirective is called");
